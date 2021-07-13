@@ -1,4 +1,9 @@
 cgm_docs
 test_input
+env
 *.sublime-project
 *.sublime-workspace
+.ipynb*
+
+# patient records in cell results
+# *.ipynb
