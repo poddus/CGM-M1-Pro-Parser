@@ -9,6 +9,91 @@ logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
 
+class CGMParser:
+    """
+    keep track of position and state, format input.
+
+    possible states:
+    header (default)
+    patient
+    notice
+    footer
+
+    possible input types:
+    GO-Fehler (1. von 3 Protokollen bei der Kassenabrechnung)
+    TGS (Textgruppenstatistik)
+    """
+
+    GO_FEHLER_HEADER = (
+        '==========================================================================================\n'
+        'Eintrag                                                                                 \n'
+        '==========================================================================================\n'
+        )
+    TGS_HEADER = (
+        '================================================================================================\n'
+        'Textgruppenstatistik\n'
+        '================================================================================================\n'
+        )
+
+    # input types
+    T_GOF = 'GO-Fehler'
+    T_TGS = 'TGS'
+    # states
+    S_HEADER = 'HEADER'
+    S_PATIENT = 'PATIENT'
+    S_NOTICE = 'NOTICE'
+    S_FOOTER = 'FOOTER'
+    # regex searches
+    PAT_DEL = r'={85} {6}\n'
+    TGS_ENTRY_DEL = r'-{96}'
+    PAT_NAME = r'[\w ÄäÖöÜüß-]*'
+    DATE = r'\d{2}.\d{2}.\d{4}'
+
+    def __init__(self):
+        self.input_type = ''
+        self.state = self.S_HEADER
+        self.rel_pos = 0
+
+        self.entries = []
+        self.entry_buffer = []
+
+    def interpret_header(self, data):
+        h = data[0:3]
+        logging.debug(data[0:3])
+        del data[0:3]
+        h = ''.join(h)
+        if h == self.GO_FEHLER_HEADER:
+            self.input_type = self.T_GOF
+        elif h == self.TGS_HEADER:
+            self.input_type = self.T_TGS
+        logging.info('input type set to: {}'.format(self.input_type))
+        logging.info('set state to: {}'.format(self.S_PATIENT))
+        self.state = self.S_PATIENT
+        return data
+
+    def parse_date(self, y, m, d):
+        return date(int(y), int(m), int(d))
+
+    def separate_entries(self, data):
+        if self.input_type == self.T_GOF:
+            logging.info('sep data using GOF format')
+            data_str = ''.join(data)
+            entries = re.split(self.PAT_DEL, data_str)
+            trimmed = []
+            for e in entries:
+                trimmed.append(re.sub(' *\n *| *$', '\n', e))
+            del trimmed[0]
+            return trimmed
+
+
+p = CGMParser()
+with open('test_input/abrechnung_short.txt', 'r', encoding='cp1252') as f:
+    data = f.readlines()
+
+data = p.interpret_header(data)
+entries = p.separate_entries(data)
+
+
 def parse_abrechung(f):
     is_header = False
     header_buffer = []
