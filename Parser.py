@@ -47,8 +47,9 @@ class CGMBillingNotice(CGMPatient):
     def __init__(self, patient_buffer, insurance_buffer, notices=None):
         super().__init__(patient_buffer)
 
-        self.treatment_type = insurance_buffer['treatment_type']
-        self.quarter = insurance_buffer['quarter']
+        self.billing_type = insurance_buffer['billing_type']
+        self.quarter = insurance_buffer['q']
+        self.qyear = insurance_buffer['qyear']
         self.ins_status = insurance_buffer['ins_status']
         self.vknr = insurance_buffer['vknr']
         self.ktab = insurance_buffer['ktab']
@@ -57,6 +58,38 @@ class CGMBillingNotice(CGMPatient):
             self.notices = notices
         else:
             self.notices = []
+
+    def __repr__(self):
+        return '{self.__class__.__name__}(self.pat_id)'.format(self=self)
+
+    def __str__(self):
+        str_buffer = []
+        str_buffer.append(
+            '\n'
+            'STAMMDATEN\n'
+            '----------\n'
+            'ID: {self.pat_id}\n'
+            'Name: {self.last_name}, {self.first_name}\n'
+            'Geburtstag: {self.birth_date}\n'
+            '\n'
+            'VERSICHERUNGSDATEN\n'
+            '------------------\n'
+            'Scheinart: {self.billing_type}\n'
+            'Quartal: {self.quarter}, {self.qyear}\n'
+            'Versicherungsstatus: {self.ins_status}\n'
+            'VKNR: {self.vknr}\n'
+            'KTAB: {self.ktab}\n'
+            '\n'
+            'FEHLER\n'
+            '------\n'
+            .format(self=self)
+        )
+        for n in self.notices:
+            str_buffer.append('Datum: {}\n'.format(str(n['date'])))
+            str_buffer.append('{}\n'.format(n['text']))
+        str_buffer.append('\n')
+
+        return ''.join(str_buffer)
 
 
 class CGMPatientRecord(CGMPatient):
@@ -117,9 +150,6 @@ class CGMParser:
         logging.info('input type set to: {}'.format(self.input_type))
         return data
 
-    def parse_date(self, y, m, d):
-        return date(int(y), int(m), int(d))
-
     def separate_entries(self, data):
         if self.input_type == self.T_GOF:
             logging.info('separating data using GOF format')
@@ -128,28 +158,54 @@ class CGMParser:
             del data[0]
 
             entries = []
-            entry_buffer = []
+            current_entry = []
             for line in data:
                 trimmed_line = ''
                 if re.match(self.PAT_DEL, line):
                     logging.info('patient delimiter encountered')
-                    entries.append(entry_buffer)
-                    entry_buffer = []
+                    entries.append(current_entry)
+                    current_entry = []
                     continue
                 trimmed_line = re.sub('^ *| *\n *| *$', '', line)
-                entry_buffer.append(trimmed_line)
+                current_entry.append(trimmed_line)
 
             return entries
 
-    def convert_to_datetime(y, m, d):
-        return date(
-            int(y),
-            int(m),
-            int(d)
-        )
+    def parse_notices(self, notices):
+        notice_list = []
+        for line in notices:
+            match_notice_info = re.search('^(\d{2}).(\d{2}).(\d{4})\s(.*)', line)
+            if match_notice_info:
+                try:
+                    current_notice['text'] = ' '.join(current_notice['text'])
+                    notice_list.append(current_notice)
+                    logging.info('appended notice to list of notices')
+                except NameError:
+                    # ignore undefined variable in first loop
+                    pass
+                current_notice = {}
+                current_notice['text'] = []
 
-    def parse_notices(self, entries):
-        pass
+                logging.debug('successful match of notice information')
+                # convert to datetime object
+                date_stamp = date(
+                    int(match_notice_info[3]),
+                    int(match_notice_info[2]),
+                    int(match_notice_info[1])
+                )
+
+                current_notice['date'] = date_stamp
+                current_notice['type'] = match_notice_info[4]
+                continue
+            trimmed_line = re.sub(r'^\s*|\s$', '', line)
+            current_notice['text'].append(trimmed_line)
+
+        # add last entry to list this duplicates code from the loop and I don't like it
+        current_notice['text'] = ' '.join(current_notice['text'])
+        notice_list.append(current_notice)
+        logging.info('appended last notice to list of notices')
+
+        return notice_list
 
     def parse_entries(self, entries):
         entries_new = []
@@ -157,32 +213,49 @@ class CGMParser:
             logging.info('parsing entries using GOF format')
 
             for e in entries:
-                # parse first line
-                patient_buffer = {}
+                # parse first line (patient info)
+                current_patient = {}
                 match_pat = re.search(
                     '(^\d*)\s([\w ÄäÖöÜüß-]*), ([\w ÄäÖöÜüß-]*)\s(\d{2}).(\d{2}).(\d{4})',
                     e[0]
                 )
                 if match_pat:
-                    pat_birth_date = self.convert_to_datetime(
+                    logging.debug('successful match of patient information')
+                    pat_birth_date = date(
                         int(match_pat[6]),
                         int(match_pat[5]),
                         int(match_pat[4])
                     )
-                    patient_buffer['pat_id'] = match_pat[1]
-                    patient_buffer['last_name'] = match_pat[2]
-                    patient_buffer['first_name'] = match_pat[3]
-                    patient_buffer['birth_date'] = pat_birth_date
+                    current_patient['pat_id'] = match_pat[1]
+                    current_patient['last_name'] = match_pat[2]
+                    current_patient['first_name'] = match_pat[3]
+                    current_patient['birth_date'] = pat_birth_date
+                else:
+                    logging.error('no match of patient information!')
 
-                # parse second line
-                # TODO
-                insurance_buffer = {}
+                # parse second line (insurance info)
+                current_insurance = {}
+                match_ins = re.search(
+                    '([\w ÄäÖöÜüß])\s(\d)(\d{4})\s([MFR])\s(\d*)\s(\d{2})',
+                    e[1]
+                )
+                if match_ins:
+                    logging.debug('successful match of insurance information')
+                    current_insurance['billing_type'] = match_ins[1]
+                    current_insurance['q'] = match_ins[2]
+                    current_insurance['qyear'] = match_ins[3]
+                    current_insurance['ins_status'] = match_ins[4]
+                    current_insurance['vknr'] = match_ins[5]
+                    current_insurance['ktab'] = match_ins[6]
+                else:
+                    logging.error('no match of insurance information!')
 
                 # parse notices
                 # TODO
-                notices = self.parse_notices(entries[2:])
+                notices = self.parse_notices(e[2:])
 
-                entries_new.append(CGMBillingNotice(patient_buffer, insurance_buffer, notices))
+                entries_new.append(CGMBillingNotice(current_patient, current_insurance, notices))
+            return entries_new
 
 
 p = CGMParser()
@@ -191,109 +264,6 @@ with open('test_input/abrechnung_short.txt', 'r', encoding='cp1252') as f:
 
 data = p.interpret_header(data)
 entries = p.separate_entries(data)
-
-
-def parse_abrechung(f):
-    is_header = False
-    header_buffer = []
-
-    patients = []
-    patient_buffer = {}
-    notice_buffer = {}
-
-    # first patient delimiter ('===') after header results in index 0
-    patient_count = -1
-
-    # indices start at 1
-    content_line_count = 1
-    log_line_count = 1
-
-    for line in f:
-        logging.debug(
-            'pos abs/rel: {}, {}'.format(
-                log_line_count,
-                content_line_count
-            )
-        )
-
-        # parse header
-        if re.search('={90}', line) and (is_header is False):
-            is_header = True
-            continue
-        if re.search('={90}', line):
-            is_header = False
-            continue
-        header_buffer.append(line)
-
-        # parse patient records
-        # match 85 '=' and 5 ' '
-        if re.search('^={85} {5}', line):
-            # add patient from last round to list, skip first loop
-            if patient_count != -1:
-                patient_buffer['notice'] = notice_buffer
-                patients.append(patient_buffer)
-                patient_buffer = {}
-            content_line_count = 1
-            patient_count += 1
-            logging.debug('patient_count: {}'.format(patient_count))
-            continue
-
-        # match patient information
-        match_pat = re.search(
-            '(^\d*)\s([\w ÄäÖöÜüß-]*), ([\w ÄäÖöÜüß-]*)\s(\d{2}).(\d{2}).(\d{4})',
-            line
-        )
-        if match_pat:
-            # convert to datetime object
-            pat_birth_date = date(
-                int(match_pat[6]),
-                int(match_pat[5]),
-                int(match_pat[4])
-            )
-
-            patient_buffer['pat_id'] = match_pat[1]
-            patient_buffer['last_name'] = match_pat[2]
-            patient_buffer['first_name'] = match_pat[3]
-            patient_buffer['birth_date'] = pat_birth_date
-
-            logging.debug(patient_buffer)
-
-        # match notice date and type
-        match_notice = re.search('^(\d{2}).(\d{2}).(\d{4})\s(.*)', line)
-        if match_notice:
-            # convert to datetime object
-            date_stamp = date(
-                int(match_notice[3]),
-                int(match_notice[2]),
-                int(match_notice[1])
-            )
-
-            notice_buffer['date'] = date_stamp
-            notice_buffer['type'] = match_notice[4]
-            logging.debug(notice_buffer)
-
-        # TODO: match notice content
-        # (until next notice or next patient record delimiter)
-
-        content_line_count += 1
-        log_line_count += 1
-    return patients
-
-
-with open('test_input/abrechnung_short.txt', 'r', encoding='cp1252') as f:
-    patients = parse_abrechung(f)
-
-for p in patients:
-    print(
-        'ID: {}\n'
-        'Name: {} {}\n'
-        'geb.: {}\n'
-        'Notice Date: {}\n'
-        'Notice Type: {}\n'.format(p['pat_id'],
-                                   p['first_name'],
-                                   p['last_name'],
-                                   p['birth_date'].isoformat(),
-                                   p['notice']['date'],
-                                   p['notice']['type']
-                                   )
-    )
+parsed_entries = p.parse_entries(entries)
+for e in parsed_entries:
+    print(e)

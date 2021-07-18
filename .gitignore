@@ -4,6 +4,7 @@ env
 *.sublime-project
 *.sublime-workspace
 .ipynb*
+.idea
 
 # patient records in cell results
 # *.ipynb
