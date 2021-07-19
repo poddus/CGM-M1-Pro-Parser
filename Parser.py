@@ -4,14 +4,15 @@
 import re
 import logging
 from datetime import date
+import csv
 
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 class CGMPatient:
     """
-    base class which defines a generic single entry
+    base class which defines a generic single patient-related entry
     """
     def __init__(self, patient_buffer):
         self.pat_id = patient_buffer['pat_id']
@@ -166,20 +167,24 @@ class CGMParser:
                     entries.append(current_entry)
                     current_entry = []
                     continue
-                trimmed_line = re.sub('^ *| *\n *| *$', '', line)
+                trimmed_line = re.sub(r'^ *| *\n *| *$', '', line)
                 current_entry.append(trimmed_line)
 
             return entries
 
+    def _write_notices(self, current_notice, notice_list):
+        current_notice['text'] = ' '.join(current_notice['text'])
+        notice_list.append(current_notice)
+        logging.info('appended notice to list of notices')
+        return notice_list
+
     def parse_notices(self, notices):
         notice_list = []
         for line in notices:
-            match_notice_info = re.search('^(\d{2}).(\d{2}).(\d{4})\s(.*)', line)
+            match_notice_info = re.search(r'^(\d{2}).(\d{2}).(\d{4})\s(.*)', line)
             if match_notice_info:
                 try:
-                    current_notice['text'] = ' '.join(current_notice['text'])
-                    notice_list.append(current_notice)
-                    logging.info('appended notice to list of notices')
+                    notice_list = self._write_notices(current_notice, notice_list)
                 except NameError:
                     # ignore undefined variable in first loop
                     pass
@@ -200,10 +205,7 @@ class CGMParser:
             trimmed_line = re.sub(r'^\s*|\s$', '', line)
             current_notice['text'].append(trimmed_line)
 
-        # add last entry to list this duplicates code from the loop and I don't like it
-        current_notice['text'] = ' '.join(current_notice['text'])
-        notice_list.append(current_notice)
-        logging.info('appended last notice to list of notices')
+        notice_list = self._write_notices(current_notice, notice_list)
 
         return notice_list
 
@@ -216,7 +218,7 @@ class CGMParser:
                 # parse first line (patient info)
                 current_patient = {}
                 match_pat = re.search(
-                    '(^\d*)\s([\w ÄäÖöÜüß-]*), ([\w ÄäÖöÜüß-]*)\s(\d{2}).(\d{2}).(\d{4})',
+                    r'(^\d*)\s+([\w ÄäÖöÜüß-]*), ([\w ÄäÖöÜüß-]*)\s+(\d{2}).(\d{2}).(\d{4})',
                     e[0]
                 )
                 if match_pat:
@@ -236,7 +238,7 @@ class CGMParser:
                 # parse second line (insurance info)
                 current_insurance = {}
                 match_ins = re.search(
-                    '([\w ÄäÖöÜüß])\s(\d)(\d{4})\s([MFR])\s(\d*)\s(\d{2})',
+                    r'([\wÄäÖöÜüß]+)\s+(\d)(\d{4})\s+([MFR])\s+(\d*)\s+(\d{2})',
                     e[1]
                 )
                 if match_ins:
@@ -251,11 +253,40 @@ class CGMParser:
                     logging.error('no match of insurance information!')
 
                 # parse notices
-                # TODO
                 notices = self.parse_notices(e[2:])
 
                 entries_new.append(CGMBillingNotice(current_patient, current_insurance, notices))
             return entries_new
+
+    def export_csv(self, entries, filepath):
+        if self.input_type == self.T_GOF:
+            with open(filepath, mode='w') as f:
+                fieldnames = [
+                    'Patienten-ID',
+                    'Nachname',
+                    'Vorname',
+                    'Geburtsdatum',
+                    'Scheinart',
+                    'Quartal',
+                    'Versicherungsstatus',
+                    'VKNR',
+                    'KTAB'
+                ]
+                csv_writer = csv.DictWriter(f, delimiter=';', fieldnames=fieldnames)
+                csv_writer.writeheader()
+                for e in entries:
+                    row_buffer = {
+                        'Patienten-ID': e.pat_id,
+                        'Nachname': e.last_name,
+                        'Vorname': e.first_name,
+                        'Geburtsdatum': e.birth_date,
+                        'Scheinart': e.billing_type,
+                        'Quartal': e.quarter + e.qyear,
+                        'Versicherungsstatus': e.ins_status,
+                        'VKNR': e.vknr,
+                        'KTAB': e.ktab
+                    }
+                    csv_writer.writerow(row_buffer)
 
 
 p = CGMParser()
@@ -265,5 +296,4 @@ with open('test_input/abrechnung_short.txt', 'r', encoding='cp1252') as f:
 data = p.interpret_header(data)
 entries = p.separate_entries(data)
 parsed_entries = p.parse_entries(entries)
-for e in parsed_entries:
-    print(e)
+p.export_csv(parsed_entries, 'out.csv')
