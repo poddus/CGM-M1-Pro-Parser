@@ -7,7 +7,7 @@ from datetime import date
 import csv
 
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 
 class CGMPatient:
@@ -95,8 +95,11 @@ class CGMBillingNotice(CGMPatient):
 
 class CGMPatientRecord(CGMPatient):
     """represents single entry in Textgruppenstatistik"""
-    def __init__(self, patient_buffer, chart_notes=None):
+    def __init__(self, patient_buffer, insurance_buffer, chart_notes=None):
         super().__init__(patient_buffer)
+
+        self.kasse = insurance_buffer['kasse']
+        self.member_id = insurance_buffer['member_id']
         if chart_notes:
             self.chart_notes = chart_notes
         else:
@@ -129,12 +132,12 @@ class CGMParser:
     # regex searches
     PAT_DEL = r'={85} {6}\n'
     TGS_ENTRY_DEL = r'-{96}'
+    # TODO: These expressions are often reused within more complex ones, but formatting raw strings is ugly
     # PAT_NAME = r'[\w ÄäÖöÜüß-]*'
     # DATE = r'\d{2}.\d{2}.\d{4}'
 
     def __init__(self):
         self.input_type = ''
-        self.rel_pos = 0
 
         self.entries = []
         self.entry_buffer = []
@@ -148,32 +151,37 @@ class CGMParser:
             self.input_type = self.T_GOF
         elif h == self.TGS_HEADER:
             self.input_type = self.T_TGS
+            logging.info('removing footer')
+            logging.debug(data[-3:])
+            del data[-3:]
         logging.info('input type set to: {}'.format(self.input_type))
         return data
 
     def separate_entries(self, data):
+        # remove first entry delimiter
+        del data[0]
+
+        delimiter = ''
         if self.input_type == self.T_GOF:
             logging.info('separating data using GOF format')
+            delimiter = self.PAT_DEL
 
-            # remove first entry delimiter
-            del data[0]
-
-            entries = []
-            current_entry = []
-            for line in data:
-                trimmed_line = ''
-                if re.match(self.PAT_DEL, line):
-                    logging.info('patient delimiter encountered')
-                    entries.append(current_entry)
-                    current_entry = []
-                    continue
-                trimmed_line = re.sub(r'^ *| *\n *| *$', '', line)
-                current_entry.append(trimmed_line)
-            return entries
         elif self.input_type == self.T_TGS:
             logging.info('separating data using TGS format')
-            # TODO: use TGS_ENTRY_DEL
-            raise NotImplementedError()
+            delimiter = self.TGS_ENTRY_DEL
+
+        entries = []
+        current_entry = []
+        for line in data:
+            trimmed_line = ''
+            if re.match(delimiter, line):
+                logging.info('patient delimiter encountered')
+                entries.append(current_entry)
+                current_entry = []
+                continue
+            trimmed_line = re.sub(r'^ *| *\n *| *$', '', line)
+            current_entry.append(trimmed_line)
+        return entries
 
     def parse_entries(self, entries):
         entries_new = []
@@ -183,38 +191,39 @@ class CGMParser:
             for e in entries:
                 # parse first line (patient info)
                 current_patient = {}
-                match_pat = re.search(
-                    r'(^\d*)\s+([\w ÄäÖöÜüß-]*), ([\w ÄäÖöÜüß-]*)\s+(\d{2}).(\d{2}).(\d{4})',
+                match_0 = re.search(
+                    # TODO: can names be empty?
+                    r'(^\d*)\s+([\w ÄäÖöÜüß-]+), ([\w ÄäÖöÜüß-]+)\s+(\d{2}).(\d{2}).(\d{4})',
                     e[0]
                 )
-                if match_pat:
+                if match_0:
                     logging.debug('successful match of patient information')
                     pat_birth_date = date(
-                        int(match_pat[6]),
-                        int(match_pat[5]),
-                        int(match_pat[4])
+                        int(match_0[6]),
+                        int(match_0[5]),
+                        int(match_0[4])
                     )
-                    current_patient['pat_id'] = match_pat[1]
-                    current_patient['last_name'] = match_pat[2]
-                    current_patient['first_name'] = match_pat[3]
+                    current_patient['pat_id'] = match_0[1]
+                    current_patient['last_name'] = match_0[2]
+                    current_patient['first_name'] = match_0[3]
                     current_patient['birth_date'] = pat_birth_date
                 else:
-                    logging.error('no match of patient information!')
+                    logging.error('no match of patient information for entry:\n{}'.format(e))
 
                 # parse second line (insurance info)
                 current_insurance = {}
-                match_ins = re.search(
+                match_1 = re.search(
                     r'([\wÄäÖöÜüß]+)\s+(\d)(\d{4})\s+([MFR])\s+(\d*)\s+(\d{2})',
                     e[1]
                 )
-                if match_ins:
+                if match_1:
                     logging.debug('successful match of insurance information')
-                    current_insurance['billing_type'] = match_ins[1]
-                    current_insurance['q'] = match_ins[2]
-                    current_insurance['qyear'] = match_ins[3]
-                    current_insurance['ins_status'] = match_ins[4]
-                    current_insurance['vknr'] = match_ins[5]
-                    current_insurance['ktab'] = match_ins[6]
+                    current_insurance['billing_type'] = match_1[1]
+                    current_insurance['q'] = match_1[2]
+                    current_insurance['qyear'] = match_1[3]
+                    current_insurance['ins_status'] = match_1[4]
+                    current_insurance['vknr'] = match_1[5]
+                    current_insurance['ktab'] = match_1[6]
                 else:
                     logging.error('no match of insurance information!')
 
@@ -225,21 +234,45 @@ class CGMParser:
         elif self.input_type == self.T_TGS:
             logging.info('parsing entries using TGS format')
             for e in entries:
-                # parse first line (patient ID)
                 current_patient = {}
-                match_pat = re.search(
-                    r'^Patientennr. (\d+)\s+\([\w\dÄäÖöÜüß, ]+\)*',
+                current_insurance = {}
+
+                # parse first line (patient ID)
+                match_0 = re.search(
+                    r'^Patientennr. (\d+)\s*(.*)',
                     e[0]
                 )
-                # TODO: the last match of the above regex is of arbitrary (including 0) length. it must be
-                #  trimmed of enclosing parentheses and then .split(sep=', ')
+                if match_0:
+                    logging.debug('successful match on line 1')
+                    current_patient['pat_id'] = match_0[1]
+                    current_patient['groups'] = match_0[2][1:-1].split(sep=', ')
+                else:
+                    logging.error('no match on first line for entry:\n{}'.format(e))
 
                 # parse second line (patient and insurance info)
                 # TODO: it may be that if a patient dies within the current quarter, then the death date will
                 #  show up in this line, since the birth date is designated with a '*'. Try to generate example input
+                match_1 = re.search(r'([\w ÄäÖöÜüß-]+),([\w ÄäÖöÜüß-]+);\s\*\s(\d{2}).(\d{2}).(\d{4}),\s([\wÄäÖöÜüß .-]+),\s([A-Z0-9]+)', e[1])
+                if match_1:
+                    logging.debug('successful match on line 2')
+                    pat_birth_date = date(
+                        int(match_1[5]),
+                        int(match_1[4]),
+                        int(match_1[3])
+                    )
+                    current_patient['last_name'] = match_1[1]
+                    current_patient['first_name'] = match_1[2]
+                    current_patient['birth_date'] = pat_birth_date
+
+                    current_insurance['kasse'] = match_1[6]
+                    current_insurance['member_id'] = match_1[7]
 
                 # parse records
                 # TODO: this will be similar to notices in that there can be an arbitrary number of records
+                chart_notes = []
+                pass
+
+                entries_new.append(CGMPatientRecord(current_patient, current_insurance, chart_notes))
 
             raise NotImplementedError()
         return entries_new
@@ -313,10 +346,10 @@ class CGMParser:
 
 
 p = CGMParser()
-with open('test_input/abrechnung_short.txt', 'r', encoding='cp1252') as f:
-    data = f.readlines()
+with open('test_input/hzv.txt', 'r', encoding='cp1252') as f:
+    glob_data = f.readlines()
 
-data = p.interpret_header(data)
-entries = p.separate_entries(data)
-parsed_entries = p.parse_entries(entries)
-p.export_csv(parsed_entries, 'out.csv')
+glob_data = p.interpret_header(glob_data)
+glob_entries = p.separate_entries(glob_data)
+glob_parsed_entries = p.parse_entries(glob_entries)
+p.export_csv(glob_parsed_entries, 'out.csv')
