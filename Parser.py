@@ -169,45 +169,11 @@ class CGMParser:
                     continue
                 trimmed_line = re.sub(r'^ *| *\n *| *$', '', line)
                 current_entry.append(trimmed_line)
-
             return entries
-
-    def _write_notices(self, current_notice, notice_list):
-        current_notice['text'] = ' '.join(current_notice['text'])
-        notice_list.append(current_notice)
-        logging.info('appended notice to list of notices')
-        return notice_list
-
-    def parse_notices(self, notices):
-        notice_list = []
-        for line in notices:
-            match_notice_info = re.search(r'^(\d{2}).(\d{2}).(\d{4})\s(.*)', line)
-            if match_notice_info:
-                try:
-                    notice_list = self._write_notices(current_notice, notice_list)
-                except NameError:
-                    # ignore undefined variable in first loop
-                    pass
-                current_notice = {}
-                current_notice['text'] = []
-
-                logging.debug('successful match of notice information')
-                # convert to datetime object
-                date_stamp = date(
-                    int(match_notice_info[3]),
-                    int(match_notice_info[2]),
-                    int(match_notice_info[1])
-                )
-
-                current_notice['date'] = date_stamp
-                current_notice['type'] = match_notice_info[4]
-                continue
-            trimmed_line = re.sub(r'^\s*|\s$', '', line)
-            current_notice['text'].append(trimmed_line)
-
-        notice_list = self._write_notices(current_notice, notice_list)
-
-        return notice_list
+        elif self.input_type == self.T_TGS:
+            logging.info('separating data using TGS format')
+            # TODO: use TGS_ENTRY_DEL
+            raise NotImplementedError()
 
     def parse_entries(self, entries):
         entries_new = []
@@ -256,7 +222,64 @@ class CGMParser:
                 notices = self.parse_notices(e[2:])
 
                 entries_new.append(CGMBillingNotice(current_patient, current_insurance, notices))
-            return entries_new
+        elif self.input_type == self.T_TGS:
+            logging.info('parsing entries using TGS format')
+            for e in entries:
+                # parse first line (patient ID)
+                current_patient = {}
+                match_pat = re.search(
+                    r'^Patientennr. (\d+)\s+\([\w\dÄäÖöÜüß, ]+\)*',
+                    e[0]
+                )
+                # TODO: the last match of the above regex is of arbitrary (including 0) length. it must be
+                #  trimmed of enclosing parentheses and then .split(sep=', ')
+
+                # parse second line (patient and insurance info)
+                # TODO: it may be that if a patient dies within the current quarter, then the death date will
+                #  show up in this line, since the birth date is designated with a '*'. Try to generate example input
+
+                # parse records
+                # TODO: this will be similar to notices in that there can be an arbitrary number of records
+
+            raise NotImplementedError()
+        return entries_new
+
+    def parse_notices(self, notices):
+        notice_list = []
+        for line in notices:
+            match_notice_info = re.search(r'^(\d{2}).(\d{2}).(\d{4})\s(.*)', line)
+            if match_notice_info:
+                try:
+                    notice_list = self._write_notices(current_notice, notice_list)
+                except NameError:
+                    # ignore undefined variable in first loop
+                    pass
+                current_notice = {}
+                current_notice['text'] = []
+
+                logging.debug('successful match of notice information')
+                # convert to datetime object
+                date_stamp = date(
+                    int(match_notice_info[3]),
+                    int(match_notice_info[2]),
+                    int(match_notice_info[1])
+                )
+
+                current_notice['date'] = date_stamp
+                current_notice['type'] = match_notice_info[4]
+                continue
+            trimmed_line = re.sub(r'^\s*|\s$', '', line)
+            current_notice['text'].append(trimmed_line)
+
+        notice_list = self._write_notices(current_notice, notice_list)
+
+        return notice_list
+
+    def _write_notices(self, current_notice, notice_list):
+        current_notice['text'] = ' '.join(current_notice['text'])
+        notice_list.append(current_notice)
+        logging.info('appended notice to list of notices')
+        return notice_list
 
     def export_csv(self, entries, filepath):
         if self.input_type == self.T_GOF:
