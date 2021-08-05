@@ -179,7 +179,8 @@ class CGMParser:
                 entries.append(current_entry)
                 current_entry = []
                 continue
-            trimmed_line = re.sub(r'^ *| *\n *| *$', '', line)
+            # trim trailing whitespace. leading whitespace (indent) is needed for parsing and is removed later
+            trimmed_line = re.sub(r' +$', '', line)
             current_entry.append(trimmed_line)
         return entries
 
@@ -228,7 +229,7 @@ class CGMParser:
                     logging.error('no match of insurance information!')
 
                 # parse notices
-                notices = self._parse_notices(e[2:])
+                notices = self._parse_entry_content(e[2:])
 
                 entries_new.append(CGMBillingNotice(current_patient, current_insurance, notices))
         elif self.input_type == self.T_TGS:
@@ -268,112 +269,82 @@ class CGMParser:
                     current_insurance['member_id'] = match_1[7]
 
                 # parse notes
-                chart_notes = self._parse_notes(e[2:])
+                chart_notes = self._parse_entry_content(e[2:])
 
                 entries_new.append(CGMPatientRecord(current_patient, current_insurance, chart_notes))
         return entries_new
 
     def _parse_entry_content(self, content):
         content_list = []
-        for line in content:
-            if self.input_type == self.T_GOF:
+        if self.input_type == self.T_GOF:
+            for line in content:
                 match_info = re.search(r'^(\d{2}).(\d{2}).(\d{4})\s(.*)', line)
-            elif self.input_type == self.T_TGS:
+                if match_info:
+                    logging.debug('successful match of entry content meta information')
+                    try:
+                        content_list = self._write_entry_content(current_content, content_list)
+                    except NameError:
+                        # ignore undefined variable in first loop
+                        pass
+
+                    current_content = {'text': []}
+
+                    date_stamp = date(
+                        int(match_info[3]),
+                        int(match_info[2]),
+                        int(match_info[1])
+                    )
+                    current_content['date'] = date_stamp
+                    current_content['type'] = match_info[4]
+                # remove leading whitespace
+                trimmed_line = re.sub(r'^\s*', '', line)
+                current_content['text'].append(trimmed_line)
+            content_list = self._write_entry_content(current_content, content_list)
+            return content_list
+
+        elif self.input_type == self.T_TGS:
+            # TODO: in TGS, there is not only a date but also 5 other attributes that can change independently.
+            #  grepping for each attribute is not a good way to handle this. However, it is unclear if a change
+            #  in one attribute causes the following attributes to be repeated or not
+            #  Sample input must be generated to check
+
+            for line in content:
                 match_info = re.search(
                     r'^(\d{2}).(\d{2}).(\d{2})\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(.*)',
                     line
                 )
+                if match_info:
+                    logging.debug('successful match of entry content meta information')
+                    try:
+                        content_list = self._write_entry_content(current_content, content_list)
+                    except NameError:
+                        # ignore undefined variable in first loop
+                        pass
 
-            if match_info:
-                logging.debug('successful match of entry content meta information')
-                try:
-                    content_list = self._write_entry_content(current_content, content_list)
-                except NameError:
-                    # ignore undefined variable in first loop
-                    pass
+                    current_content = {'text': []}
 
-                current_content = {'text': []}
-                text_buffer = []
-
-                date_stamp = date(
-                    int(match_info[3]),
-                    int(match_info[2]),
-                    int(match_info[1])
-                )
-                current_content['date'] = date_stamp
-                if self.input_type == self.T_GOF:
-                    current_content['type'] = match_info[4]
-                    continue
-                elif self.input_type == self.T_TGS:
+                    date_stamp = date(
+                        int(match_info[3]),
+                        int(match_info[2]),
+                        int(match_info[1])
+                    )
+                    current_content['date'] = date_stamp
                     current_content['erfasser'] = match_info[4]
                     current_content['schein_typ'] = match_info[5]
                     current_content['behandler'] = match_info[6]
                     current_content['fachgebiet'] = match_info[7]
                     current_content['zeilentyp'] = match_info[8]
-                    text_buffer.append(match_info[9])
-
-            # TODO: This assumes that the indent is not dependent on the field lengths. Check & make sure
-            match_new_type = re.search(r'\s{23}(\w+)\s+(.+)', line)
-            match_continue_content = re.search(r'\s{28}(.+)', line)
-            if match_new_type:
-                # TODO
+                    current_content['text'].append(match_info[9])
                 pass
-            elif match_continue_content:
-                # TODO
-                pass
-            trimmed_line = re.sub(r'^\s*|\s$', '', line)
-            current_content['text'].append(trimmed_line)
-
-        content_list = self._write_entry_content(current_content, content_list)
-        return content_list
 
     def _write_entry_content(self, current_content, content_list):
-        raise NotImplementedError
-
-    def _parse_notes(self, notes):
-        # TODO: this will be similar to notices in that there can be an arbitrary number of records
-        note_list = []
-        for line in notes:
-            match_note_info = re.search(r'^(\d{2}).(\d{2}).(\d{2})\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(.*)', line)
-            match_type_indent_size = len(re.search(r'\d{2}.\d{2}.\d{2}\s+\w+\s+\w+\s+\w+\s+\w+\s+', line)[0])
-            pass
-        raise NotImplementedError()
-
-    def _parse_notices(self, notices):
-        notice_list = []
-        for line in notices:
-            match_notice_info = re.search(r'^(\d{2}).(\d{2}).(\d{4})\s(.*)', line)
-            if match_notice_info:
-                try:
-                    notice_list = self._write_notices(current_notice, notice_list)
-                except NameError:
-                    # ignore undefined variable in first loop
-                    pass
-                current_notice = {}
-                current_notice['text'] = []
-                logging.debug('successful match of notice information')
-
-                # convert to datetime object
-                date_stamp = date(
-                    int(match_notice_info[3]),
-                    int(match_notice_info[2]),
-                    int(match_notice_info[1])
-                )
-                current_notice['date'] = date_stamp
-                current_notice['type'] = match_notice_info[4]
-                continue
-            trimmed_line = re.sub(r'^\s*|\s$', '', line)
-            current_notice['text'].append(trimmed_line)
-
-        notice_list = self._write_notices(current_notice, notice_list)
-
-        return notice_list
-
-    def _write_notices(self, current_notice, notice_list):
-        current_notice['text'] = ' '.join(current_notice['text'])
-        notice_list.append(current_notice)
-        logging.info('appended notice to list of notices')
-        return notice_list
+        if self.input_type == self.T_GOF:
+            current_content['text'] = ' '.join(current_content['text'])
+            content_list.append(current_content)
+            logging.info('appended notice to list of notices')
+            return content_list
+        elif self.input_type == self.T_TGS:
+            raise NotImplementedError
 
     def export_csv(self, entries, filepath):
         if self.input_type == self.T_GOF:
