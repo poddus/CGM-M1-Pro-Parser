@@ -3,7 +3,7 @@
 
 import re
 import logging
-from datetime import date
+from datetime import datetime
 import csv
 
 logger = logging.getLogger()
@@ -132,6 +132,13 @@ class CGMParser:
     # regex searches
     PAT_DEL = r'={85} {6}\n'
     TGS_ENTRY_DEL = r'-{96}'
+    TGS_INDENT_LEVELS = {
+        'erfasser': 9,
+        'schein_typ': 13,
+        'behandler': 15,
+        'fachgebiet': 19,
+        'zeilentyp': 23
+    }
     # TODO: These expressions are often reused within more complex ones, but formatting raw strings is ugly
     # PAT_NAME = r'[\w ÄäÖöÜüß-]*'
     # DATE = r'\d{2}.\d{2}.\d{4}'
@@ -194,16 +201,14 @@ class CGMParser:
                 current_patient = {}
                 match_0 = re.search(
                     # TODO: can names be empty?
-                    r'(^\d*)\s+([\w ÄäÖöÜüß-]+), ([\w ÄäÖöÜüß-]+)\s+(\d{2}).(\d{2}).(\d{4})',
+                    r'(^\d*)\s+([\w ÄäÖöÜüß-]+), ([\w ÄäÖöÜüß-]+)\s+(\d{2}.\d{2}.\d{4})',
                     e[0]
                 )
                 if match_0:
                     logging.debug('successful match of patient information')
-                    pat_birth_date = date(
-                        int(match_0[6]),
-                        int(match_0[5]),
-                        int(match_0[4])
-                    )
+
+                    pat_birth_date = datetime.strptime(match_0[4], '%d.%m.%Y').date()
+
                     current_patient['pat_id'] = match_0[1]
                     current_patient['last_name'] = match_0[2]
                     current_patient['first_name'] = match_0[3]
@@ -253,20 +258,16 @@ class CGMParser:
                 # parse second line (patient and insurance info)
                 # TODO: it may be that if a patient dies within the current quarter, then the death date will
                 #  show up in this line, since the birth date is designated with a '*'. Try to generate example input
-                match_1 = re.search(r'([\w ÄäÖöÜüß-]+),([\w ÄäÖöÜüß-]+);\s\*\s(\d{2}).(\d{2}).(\d{4}),\s([\wÄäÖöÜüß .-]+),\s([A-Z0-9]+)', e[1])
+                match_1 = re.search(r'([\w ÄäÖöÜüß-]+),([\w ÄäÖöÜüß-]+);\s\*\s(\d{2}.\d{2}.\d{4}),\s([\wÄäÖöÜüß .-]+),\s([A-Z0-9]+)', e[1])
                 if match_1:
                     logging.debug('successful match on line 2')
-                    pat_birth_date = date(
-                        int(match_1[5]),
-                        int(match_1[4]),
-                        int(match_1[3])
-                    )
+                    pat_birth_date = datetime.strptime(match_1[3], '%d.%m.%Y').date()
                     current_patient['last_name'] = match_1[1]
                     current_patient['first_name'] = match_1[2]
                     current_patient['birth_date'] = pat_birth_date
 
-                    current_insurance['kasse'] = match_1[6]
-                    current_insurance['member_id'] = match_1[7]
+                    current_insurance['kasse'] = match_1[4]
+                    current_insurance['member_id'] = match_1[5]
 
                 # parse notes
                 chart_notes = self._parse_entry_content(e[2:])
@@ -276,75 +277,58 @@ class CGMParser:
 
     def _parse_entry_content(self, content):
         content_list = []
+        new_line = True
         if self.input_type == self.T_GOF:
             for line in content:
-                match_info = re.search(r'^(\d{2}).(\d{2}).(\d{4})\s(.*)', line)
+                match_info = re.search(r'^(\d{2}.\d{2}.\d{4})\s(.*)', line)
                 if match_info:
                     logging.debug('successful match of entry content meta information')
-                    try:
+                    if new_line:
                         content_list = self._write_entry_content(current_content, content_list)
-                    except NameError:
-                        # ignore undefined variable in first loop
-                        pass
 
                     current_content = {'text': []}
 
-                    date_stamp = date(
-                        int(match_info[3]),
-                        int(match_info[2]),
-                        int(match_info[1])
-                    )
+                    date_stamp = datetime.strptime(match_info[1], '%d.%m.%Y').date()
                     current_content['date'] = date_stamp
-                    current_content['type'] = match_info[4]
+                    current_content['type'] = match_info[2]
                 # remove leading whitespace
                 trimmed_line = re.sub(r'^\s*', '', line)
                 current_content['text'].append(trimmed_line)
-            content_list = self._write_entry_content(current_content, content_list)
-            return content_list
+                new_line = False
 
         elif self.input_type == self.T_TGS:
-            # TODO: in TGS, there is not only a date but also 5 other attributes that can change independently.
-            #  grepping for each attribute is not a good way to handle this. However, it is unclear if a change
-            #  in one attribute causes the following attributes to be repeated or not
-            #  Sample input must be generated to check
-
+            current_content = {'text': []}
+            new_line = True
             for line in content:
-                match_info = re.search(
-                    r'^(\d{2}).(\d{2}).(\d{2})\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(.*)',
-                    line
-                )
-                if match_info:
-                    logging.debug('successful match of entry content meta information')
-                    try:
+                for k, v in self.TGS_INDENT_LEVELS.items():
+                    match_date = re.search(r'^(\d{2}.\d{2}.\d{2})', line)
+                    match_other = re.search(r'^.{{{}}}(\w+)'.format(v), line)
+                    if not new_line and (match_date or match_other):
+                        # different from GOF, here we want to retain attributes, but we clear text for next loop
+                        # this is done by creating a copy
                         content_list = self._write_entry_content(current_content, content_list)
-                    except NameError:
-                        # ignore undefined variable in first loop
-                        pass
+                        current_content = current_content.copy()
+                        current_content['text'] = []
+                        new_line = True
+                    if match_date:
+                        date_stamp = datetime.strptime(match_date[1], '%d.%m.%y').date()
+                        current_content['date'] = date_stamp
+                    if match_other:
+                        current_content[k] = match_other[1]
+                new_line = False
 
-                    current_content = {'text': []}
+                match_text = re.search(r'.{28}(.+)', line)
+                if match_text:
+                    current_content['text'].append(match_text[1])
 
-                    date_stamp = date(
-                        int(match_info[3]),
-                        int(match_info[2]),
-                        int(match_info[1])
-                    )
-                    current_content['date'] = date_stamp
-                    current_content['erfasser'] = match_info[4]
-                    current_content['schein_typ'] = match_info[5]
-                    current_content['behandler'] = match_info[6]
-                    current_content['fachgebiet'] = match_info[7]
-                    current_content['zeilentyp'] = match_info[8]
-                    current_content['text'].append(match_info[9])
-                pass
+        content_list = self._write_entry_content(current_content, content_list)
+        return content_list
 
-    def _write_entry_content(self, current_content, content_list):
-        if self.input_type == self.T_GOF:
-            current_content['text'] = ' '.join(current_content['text'])
-            content_list.append(current_content)
-            logging.info('appended notice to list of notices')
-            return content_list
-        elif self.input_type == self.T_TGS:
-            raise NotImplementedError
+    def _write_entry_content(self, content_item, content_list):
+        content_item['text'] = ' '.join(content_item['text'])
+        content_list.append(content_item)
+        logging.info('appended notice to list of notices')
+        return content_list
 
     def export_csv(self, entries, filepath):
         if self.input_type == self.T_GOF:
@@ -375,6 +359,8 @@ class CGMParser:
                         'KTAB': e.ktab
                     }
                     csv_writer.writerow(row_buffer)
+        if self.input_type == self.T_TGS:
+            raise NotImplementedError
 
 
 p = CGMParser()
