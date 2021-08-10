@@ -362,6 +362,10 @@ class CGMParser:
         if self.input_type == self.T_TGS:
             raise NotImplementedError
 
+    def export_ids(self, entries, filepath):
+        with open(filepath, mode='w') as f:
+            for e in entries:
+                f.writelines(e.pat_id + '\n')
 
 p = CGMParser()
 with open('test_input/hzv.txt', 'r', encoding='cp1252') as f:
@@ -370,4 +374,4 @@ with open('test_input/hzv.txt', 'r', encoding='cp1252') as f:
 glob_data = p.interpret_header(glob_data)
 glob_entries = p.separate_entries(glob_data)
 glob_parsed_entries = p.parse_entries(glob_entries)
-p.export_csv(glob_parsed_entries, 'out.csv')
+p.export_ids(glob_parsed_entries, 'out')
