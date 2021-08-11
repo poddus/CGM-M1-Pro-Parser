@@ -64,27 +64,24 @@ class CGMBillingNotice(CGMPatient):
         return '{self.__class__.__name__}(self.pat_id)'.format(self=self)
 
     def __str__(self):
-        str_buffer = []
-        str_buffer.append(
-            '\n'
-            'STAMMDATEN\n'
-            '----------\n'
-            'ID: {self.pat_id}\n'
-            'Name: {self.last_name}, {self.first_name}\n'
-            'Geburtstag: {self.birth_date}\n'
-            '\n'
-            'VERSICHERUNGSDATEN\n'
-            '------------------\n'
-            'Scheinart: {self.billing_type}\n'
-            'Quartal: {self.quarter}, {self.qyear}\n'
-            'Versicherungsstatus: {self.ins_status}\n'
-            'VKNR: {self.vknr}\n'
-            'KTAB: {self.ktab}\n'
-            '\n'
-            'FEHLER\n'
-            '------\n'
-            .format(self=self)
-        )
+        str_buffer = ['\n'
+                      'STAMMDATEN\n'
+                      '----------\n'
+                      'ID: {self.pat_id}\n'
+                      'Name: {self.last_name}, {self.first_name}\n'
+                      'Geburtstag: {self.birth_date}\n'
+                      '\n'
+                      'VERSICHERUNGSDATEN\n'
+                      '------------------\n'
+                      'Scheinart: {self.billing_type}\n'
+                      'Quartal: {self.quarter}, {self.qyear}\n'
+                      'Versicherungsstatus: {self.ins_status}\n'
+                      'VKNR: {self.vknr}\n'
+                      'KTAB: {self.ktab}\n'
+                      '\n'
+                      'FEHLER\n'
+                      '------\n'
+                      .format(self=self)]
         for n in self.notices:
             str_buffer.append('Datum: {}\n'.format(str(n['date'])))
             str_buffer.append('{}\n'.format(n['text']))
@@ -176,6 +173,8 @@ class CGMParser:
         elif self.input_type == self.T_TGS:
             logging.info('separating data using TGS format')
             delimiter = self.TGS_ENTRY_DEL
+        else:
+            logging.error('no delimiter recognized')
 
         entries = []
         current_entry = []
@@ -283,7 +282,7 @@ class CGMParser:
                 match_info = re.search(r'^(\d{2}.\d{2}.\d{4})\s(.*)', line)
                 if match_info:
                     logging.debug('successful match of entry content meta information')
-                    if new_line:
+                    if not new_line:
                         content_list = self._write_entry_content(current_content, content_list)
 
                     current_content = {'text': []}
@@ -324,13 +323,15 @@ class CGMParser:
         content_list = self._write_entry_content(current_content, content_list)
         return content_list
 
-    def _write_entry_content(self, content_item, content_list):
+    @staticmethod
+    def _write_entry_content(content_item, content_list):
         content_item['text'] = ' '.join(content_item['text'])
         content_list.append(content_item)
         logging.info('appended notice to list of notices')
         return content_list
 
     def export_csv(self, entries, filepath):
+        # TODO: implement export of content
         if self.input_type == self.T_GOF:
             with open(filepath, mode='w') as f:
                 fieldnames = [
@@ -360,18 +361,71 @@ class CGMParser:
                     }
                     csv_writer.writerow(row_buffer)
         if self.input_type == self.T_TGS:
-            raise NotImplementedError
+            with open(filepath, mode='w') as f:
+                fieldnames = [
+                    'Patienten-ID',
+                    'Nachname',
+                    'Vorname',
+                    'Geburtsdatum',
+                    'Kasse',
+                    'Versichertennummer',
+                ]
+                csv_writer = csv.DictWriter(f, delimiter=';', fieldnames=fieldnames)
+                csv_writer.writeheader()
+                for e in entries:
+                    row_buffer = {
+                        'Patienten-ID': e.pat_id,
+                        'Nachname': e.last_name,
+                        'Vorname': e.first_name,
+                        'Geburtsdatum': e.birth_date,
+                        'Kasse': e.kasse,
+                        'Versichertennummer': e.member_id,
+                    }
+                    csv_writer.writerow(row_buffer)
 
-    def export_ids(self, entries, filepath):
+    @staticmethod
+    def export_ids(entries, filepath):
         with open(filepath, mode='w') as f:
             for e in entries:
                 f.writelines(e.pat_id + '\n')
 
-p = CGMParser()
-with open('test_input/hzv.txt', 'r', encoding='cp1252') as f:
-    glob_data = f.readlines()
 
-glob_data = p.interpret_header(glob_data)
-glob_entries = p.separate_entries(glob_data)
-glob_parsed_entries = p.parse_entries(glob_entries)
-p.export_ids(glob_parsed_entries, 'out')
+def main(args):
+    p = CGMParser()
+    with open(args.input_path, 'r', encoding='cp1252') as f:
+        glob_data = f.readlines()
+
+    glob_data = p.interpret_header(glob_data)
+    glob_entries = p.separate_entries(glob_data)
+    glob_parsed_entries = p.parse_entries(glob_entries)
+    if args.a:
+        p.export_csv(glob_parsed_entries, args.output_path)
+    else:
+        p.export_ids(glob_parsed_entries, args.output_path)
+
+
+if __name__ == "__main__":
+    from argparse import ArgumentParser
+
+    def parse_arguments():
+        parser = ArgumentParser(
+            description='Accepts a CGM M1 Pro list file and returns a csv file of either only patient IDs (default) or '
+                        'of all available information (-a).'
+        )
+        parser.add_argument(
+            'input_path',
+            help='path to the file to be parsed'
+        )
+        parser.add_argument(
+            'output_path',
+            help='relative path to the output (CSV) file'
+        )
+        parser.add_argument(
+            '-a',
+            action='store_true',
+            help='export all available information to output'
+        )
+        return parser.parse_args()
+
+    arguments = parse_arguments()
+    main(arguments)
