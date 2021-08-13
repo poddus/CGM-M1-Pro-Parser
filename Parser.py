@@ -2,6 +2,7 @@
 # coding: utf-8
 
 import re
+from dataclasses import dataclass, field
 import logging
 from datetime import datetime
 import csv
@@ -9,21 +10,20 @@ import csv
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
-
+@dataclass()
 class CGMPatient:
     """
     base class which defines a generic single patient-related entry
     """
-    def __init__(self, patient_buffer):
-        self.pat_id = patient_buffer['pat_id']
-        self.first_name = patient_buffer['first_name']
-        self.last_name = patient_buffer['last_name']
-        self.birth_date = patient_buffer['birth_date']
+    pat_id: str
+    first_name: str
+    last_name: str
+    birth_date: datetime.date
 
     def fullname(self):
         return '{} {}'.format(self.first_name, self.last_name)
 
-
+@dataclass()
 class CGMBillingNotice(CGMPatient):
     """
     represents single entry in GO-Fehler
@@ -45,62 +45,24 @@ class CGMBillingNotice(CGMPatient):
     03 = Bundesentschädigungsgesetz (BEG)
     07 = Bundesvertriebenengesetz (BVFG)
     """
-    def __init__(self, patient_buffer, insurance_buffer, notices=None):
-        super().__init__(patient_buffer)
 
-        self.billing_type = insurance_buffer['billing_type']
-        self.quarter = insurance_buffer['q']
-        self.qyear = insurance_buffer['qyear']
-        self.ins_status = insurance_buffer['ins_status']
-        self.vknr = insurance_buffer['vknr']
-        self.ktab = insurance_buffer['ktab']
-
-        if notices:
-            self.notices = notices
-        else:
-            self.notices = []
-
-    def __repr__(self):
-        return '{self.__class__.__name__}(self.pat_id)'.format(self=self)
-
-    def __str__(self):
-        str_buffer = ['\n'
-                      'STAMMDATEN\n'
-                      '----------\n'
-                      'ID: {self.pat_id}\n'
-                      'Name: {self.last_name}, {self.first_name}\n'
-                      'Geburtstag: {self.birth_date}\n'
-                      '\n'
-                      'VERSICHERUNGSDATEN\n'
-                      '------------------\n'
-                      'Scheinart: {self.billing_type}\n'
-                      'Quartal: {self.quarter}, {self.qyear}\n'
-                      'Versicherungsstatus: {self.ins_status}\n'
-                      'VKNR: {self.vknr}\n'
-                      'KTAB: {self.ktab}\n'
-                      '\n'
-                      'FEHLER\n'
-                      '------\n'
-                      .format(self=self)]
-        for n in self.notices:
-            str_buffer.append('Datum: {}\n'.format(str(n['date'])))
-            str_buffer.append('{}\n'.format(n['text']))
-        str_buffer.append('\n')
-
-        return ''.join(str_buffer)
+    billing_type: str
+    quarter: str
+    qyear: str
+    ins_status: str
+    vknr: str
+    ktab: str
+    notices: list = field(default_factory=[])
 
 
+@dataclass()
 class CGMPatientRecord(CGMPatient):
     """represents single entry in Textgruppenstatistik"""
-    def __init__(self, patient_buffer, insurance_buffer, chart_notes=None):
-        super().__init__(patient_buffer)
 
-        self.kasse = insurance_buffer['kasse']
-        self.member_id = insurance_buffer['member_id']
-        if chart_notes:
-            self.chart_notes = chart_notes
-        else:
-            self.chart_notes = []
+    kasse: str
+    member_id: str
+    groups: list = field(default_factory=[])
+    chart_notes: list = field(default_factory=[])
 
 
 class CGMParser:
@@ -142,7 +104,6 @@ class CGMParser:
 
     def __init__(self):
         self.input_type = ''
-
         self.entries = []
         self.entry_buffer = []
 
@@ -197,7 +158,7 @@ class CGMParser:
 
             for e in entries:
                 # parse first line (patient info)
-                current_patient = {}
+                entry_buffer = {}
                 match_0 = re.search(
                     # TODO: can names be empty?
                     r'(^\d*)\s+([\w ÄäÖöÜüß-]+), ([\w ÄäÖöÜüß-]+)\s+(\d{2}.\d{2}.\d{4})',
@@ -208,39 +169,53 @@ class CGMParser:
 
                     pat_birth_date = datetime.strptime(match_0[4], '%d.%m.%Y').date()
 
-                    current_patient['pat_id'] = match_0[1]
-                    current_patient['last_name'] = match_0[2]
-                    current_patient['first_name'] = match_0[3]
-                    current_patient['birth_date'] = pat_birth_date
+                    entry_buffer['pat_id'] = match_0[1]
+                    entry_buffer['last_name'] = match_0[2]
+                    entry_buffer['first_name'] = match_0[3]
+                    entry_buffer['birth_date'] = pat_birth_date
                 else:
                     logging.error('no match of patient information for entry:\n{}'.format(e))
 
                 # parse second line (insurance info)
-                current_insurance = {}
                 match_1 = re.search(
                     r'([\wÄäÖöÜüß]+)\s+(\d)(\d{4})\s+([MFR])\s+(\d*)\s+(\d{2})',
                     e[1]
                 )
                 if match_1:
                     logging.debug('successful match of insurance information')
-                    current_insurance['billing_type'] = match_1[1]
-                    current_insurance['q'] = match_1[2]
-                    current_insurance['qyear'] = match_1[3]
-                    current_insurance['ins_status'] = match_1[4]
-                    current_insurance['vknr'] = match_1[5]
-                    current_insurance['ktab'] = match_1[6]
+                    entry_buffer['billing_type'] = match_1[1]
+                    entry_buffer['q'] = match_1[2]
+                    entry_buffer['qyear'] = match_1[3]
+                    entry_buffer['ins_status'] = match_1[4]
+                    entry_buffer['vknr'] = match_1[5]
+                    entry_buffer['ktab'] = match_1[6]
                 else:
                     logging.error('no match of insurance information!')
 
                 # parse notices
                 notices = self._parse_entry_content(e[2:])
 
-                entries_new.append(CGMBillingNotice(current_patient, current_insurance, notices))
+                entries_new.append(
+                    CGMBillingNotice(
+                        pat_id=entry_buffer['pat_id'],
+                        first_name=entry_buffer['first_name'],
+                        last_name=entry_buffer['last_name'],
+                        birth_date=entry_buffer['birth_date'],
+
+                        billing_type=entry_buffer['billing_type'],
+                        quarter=entry_buffer['q'],
+                        qyear=entry_buffer['qyear'],
+                        ins_status=entry_buffer['ins_status'],
+                        vknr=entry_buffer['vknr'],
+                        ktab=entry_buffer['ktab'],
+
+                        notices=notices
+                    )
+                )
         elif self.input_type == self.T_TGS:
             logging.info('parsing entries using TGS format')
             for e in entries:
-                current_patient = {}
-                current_insurance = {}
+                entry_buffer = {}
 
                 # parse first line (patient ID)
                 match_0 = re.search(
@@ -249,8 +224,8 @@ class CGMParser:
                 )
                 if match_0:
                     logging.debug('successful match on line 1')
-                    current_patient['pat_id'] = match_0[1]
-                    current_patient['groups'] = match_0[2][1:-1].split(sep=', ')
+                    entry_buffer['pat_id'] = match_0[1]
+                    entry_buffer['groups'] = match_0[2][1:-1].split(sep=', ')
                 else:
                     logging.error('no match on first line for entry:\n{}'.format(e))
 
@@ -261,19 +236,33 @@ class CGMParser:
                 if match_1:
                     logging.debug('successful match on line 2')
                     pat_birth_date = datetime.strptime(match_1[3], '%d.%m.%Y').date()
-                    current_patient['last_name'] = match_1[1]
-                    current_patient['first_name'] = match_1[2]
-                    current_patient['birth_date'] = pat_birth_date
+                    entry_buffer['last_name'] = match_1[1]
+                    entry_buffer['first_name'] = match_1[2]
+                    entry_buffer['birth_date'] = pat_birth_date
 
-                    current_insurance['kasse'] = match_1[4]
-                    current_insurance['member_id'] = match_1[5]
+                    entry_buffer['kasse'] = match_1[4]
+                    entry_buffer['member_id'] = match_1[5]
 
                 # parse notes
                 chart_notes = self._parse_entry_content(e[2:])
 
-                entries_new.append(CGMPatientRecord(current_patient, current_insurance, chart_notes))
+                entries_new.append(
+                    CGMPatientRecord(
+                        pat_id=entry_buffer['pat_id'],
+                        first_name=entry_buffer['first_name'],
+                        last_name=entry_buffer['last_name'],
+                        birth_date=entry_buffer['birth_date'],
+
+                        kasse=entry_buffer['kasse'],
+                        member_id=entry_buffer['member_id'],
+                        groups=entry_buffer['groups'],
+
+                        chart_notes=chart_notes
+                    )
+                )
         return entries_new
 
+    # TODO: refactor into dataclass
     def _parse_entry_content(self, content):
         content_list = []
         new_line = True
@@ -300,6 +289,7 @@ class CGMParser:
             new_line = True
             for line in content:
                 for k, v in self.TGS_INDENT_LEVELS.items():
+                    # TODO: combine searches with regex OR operator (|)?
                     match_date = re.search(r'^(\d{2}.\d{2}.\d{2})', line)
                     match_other = re.search(r'^.{{{}}}(\w+)'.format(v), line)
                     if not new_line and (match_date or match_other):

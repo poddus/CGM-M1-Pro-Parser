@@ -1,6 +1,7 @@
 cgm_docs
 test_input
 env
+out*
 *.sublime-project
 *.sublime-workspace
 .ipynb*
