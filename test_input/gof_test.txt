@@ -1,0 +1,23 @@
+==========================================================================================
+Eintrag                                                                                 
+==========================================================================================
+=====================================================================================
+1234 Mustermann, Felix 01.02.1973                                                          
+AmbulBeh    22021 M 12300 00                                                               
+01.06.2021 Schein (abc)                                                                    
+           Hinweis: Versichertenpauschale im Behandlungsfall fehlt.                        
+=====================================================================================      
+2 Doppel-Name, Barbara-Andrea 05.06.1999                                                   
+AmbulBeh    22021 F 55555 00                                                               
+13.07.2021 Schein                                                                          
+           Erfassungsdatum: 13.07.2021                                                     
+           Keine Behandlungsdaten zu diesem Schein                                         
+=====================================================================================      
+30000 Spaet, Maurus 01.01.1922                                                              
+AmbulBeh    22021 R 00055 00                                                               
+12.08.2021 Schein (abc)                                                                    
+           Erfassungsdatum: 12.08.2021                                                     
+           Der Patient ist in die hausarztzentrierte Versorgung eingeschrieben. Die        
+           Behandlung dieses Patienten ist für alle im HzV-Ziffernkranz enthaltenen        
+           Leistungen, außer im organisierten Notfalldienst, über die HzV abzurechnen.     
+           Bitte prüfen Sie die Angaben zur Abrechnung gegenüber der KV.                   

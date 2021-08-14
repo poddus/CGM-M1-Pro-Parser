@@ -85,7 +85,7 @@ class CGMParser:
         '================================================================================================\n'
         )
 
-    # input types
+    # input types TODO: should these be enums?
     T_GOF = 'GO-Fehler'
     T_TGS = 'TGS'
     # regex searches
@@ -98,9 +98,6 @@ class CGMParser:
         'fachgebiet': 19,
         'zeilentyp': 23
     }
-    # TODO: These expressions are often reused within more complex ones, but formatting raw strings is ugly
-    # PAT_NAME = r'[\w ÄäÖöÜüß-]*'
-    # DATE = r'\d{2}.\d{2}.\d{4}'
 
     def __init__(self):
         self.input_type = ''
@@ -149,6 +146,8 @@ class CGMParser:
             # trim trailing whitespace. leading whitespace (indent) is needed for parsing and is removed later
             trimmed_line = re.sub(r' +$', '', line)
             current_entry.append(trimmed_line)
+        # add last entry to list
+        entries.append(current_entry)
         return entries
 
     def parse_entries(self, entries):
