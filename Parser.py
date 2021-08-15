@@ -160,7 +160,7 @@ class CGMParser:
                 entry_buffer = {}
                 match_0 = re.search(
                     # TODO: can names be empty?
-                    r'(^\d*)\s+([\w ÄäÖöÜüß-]+), ([\w ÄäÖöÜüß-]+)\s+(\d{2}.\d{2}.\d{4})',
+                    r'(^\d*)\s+([\w -]+), ([\w -]+)\s+(\d{2}.\d{2}.\d{4})',
                     e[0]
                 )
                 if match_0:
@@ -177,7 +177,7 @@ class CGMParser:
 
                 # parse second line (insurance info)
                 match_1 = re.search(
-                    r'([\wÄäÖöÜüß]+)\s+(\d)(\d{4})\s+([MFR])\s+(\d*)\s+(\d{2})',
+                    r'([\w]+)\s+(\d)(\d{4})\s+([MFR])\s+(\d*)\s+(\d{2})',
                     e[1]
                 )
                 if match_1:
@@ -231,7 +231,7 @@ class CGMParser:
                 # parse second line (patient and insurance info)
                 # TODO: it may be that if a patient dies within the current quarter, then the death date will
                 #  show up in this line, since the birth date is designated with a '*'. Try to generate example input
-                match_1 = re.search(r'([\w ÄäÖöÜüß-]+),([\w ÄäÖöÜüß-]+);\s\*\s(\d{2}.\d{2}.\d{4}),\s([\wÄäÖöÜüß .-]+),\s([A-Z0-9]+)', e[1])
+                match_1 = re.search(r'([\w -]+),([\w -]+);\s\*\s(\d{2}.\d{2}.\d{4}),\s([\w .-]+),\s([A-Z0-9]+)', e[1])
                 if match_1:
                     logging.debug('successful match on line 2')
                     pat_birth_date = datetime.strptime(match_1[3], '%d.%m.%Y').date()
@@ -357,7 +357,7 @@ class CGMParser:
                     'Vorname',
                     'Geburtsdatum',
                     'Kasse',
-                    'Versichertennummer',
+                    'Versichertennummer'
                 ]
                 csv_writer = csv.DictWriter(f, delimiter=';', fieldnames=fieldnames)
                 csv_writer.writeheader()
@@ -368,7 +368,7 @@ class CGMParser:
                         'Vorname': e.first_name,
                         'Geburtsdatum': e.birth_date,
                         'Kasse': e.kasse,
-                        'Versichertennummer': e.member_id,
+                        'Versichertennummer': e.member_id
                     }
                     csv_writer.writerow(row_buffer)
 

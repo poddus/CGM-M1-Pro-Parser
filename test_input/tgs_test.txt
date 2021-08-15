@@ -12,7 +12,7 @@ Patientennr. 1234 (0001)
 07.06.21 abc D abc A   HMV  Heilmittelverordnung (PHYS): KG-Atemtherapie
                             Diagnosen: A12.3
          def O     A   N    Eine Notiz
-               def     L    ungÃ¼ltiger Inhalt
+               def     L    ungültiger Inhalt
          abc P abc A   K    1,245a
 ------------------------------------------------------------------------------------------------
 Patientennr. 2 (DIA, KHK)
@@ -25,8 +25,8 @@ Patientennr. 2 (DIA, KHK)
 07.06.21 abc D abc A   HMV  Heilmittelverordnung (PHYS): KG-Atemtherapie
                             Diagnosen: A12.3
          def O     A   N    Eine Notiz
-               def     L    ungÃ¼ltiger Inhalt
+               def     L    ungültiger Inhalt
          abc P abc A   K    1,245a
 ================================================================================================
 Anzahl der Patienten: 2
-Anzahl der EintrÃ¤ge:  16
+Anzahl der Einträge:  16

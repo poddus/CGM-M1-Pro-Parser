@@ -13,11 +13,11 @@ AmbulBeh    22021 F 55555 00
            Erfassungsdatum: 13.07.2021                                                     
            Keine Behandlungsdaten zu diesem Schein                                         
 =====================================================================================      
-30000 Spaet, Maurus 01.01.1922                                                              
+30000 Spätôr, Mäürös-Éndrë 01.01.1922
 AmbulBeh    22021 R 00055 00                                                               
 12.08.2021 Schein (abc)                                                                    
            Erfassungsdatum: 12.08.2021                                                     
            Der Patient ist in die hausarztzentrierte Versorgung eingeschrieben. Die        
-           Behandlung dieses Patienten ist fÃ¼r alle im HzV-Ziffernkranz enthaltenen        
-           Leistungen, auÃŸer im organisierten Notfalldienst, Ã¼ber die HzV abzurechnen.     
-           Bitte prÃ¼fen Sie die Angaben zur Abrechnung gegenÃ¼ber der KV.                   
+           Behandlung dieses Patienten ist für alle im HzV-Ziffernkranz enthaltenen        
+           Leistungen, außer im organisierten Notfalldienst, über die HzV abzurechnen.     
+           Bitte prüfen Sie die Angaben zur Abrechnung gegenüber der KV.                   
