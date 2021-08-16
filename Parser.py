@@ -8,7 +8,7 @@ from datetime import datetime
 import csv
 
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 @dataclass()
 class CGMPatient:
@@ -65,6 +65,10 @@ class CGMPatientRecord(CGMPatient):
     chart_notes: list = field(default_factory=[])
 
 
+class FailedGrepMatch(ValueError):
+    pass
+
+
 class CGMParser:
     """
     Parser for lists exported from CGM M1 Pro
@@ -102,11 +106,11 @@ class CGMParser:
     def __init__(self):
         self.input_type = ''
         self.entries = []
-        self.entry_buffer = []
 
     def interpret_header(self, data):
         h = data[0:3]
         logging.debug(data[0:3])
+        # remove header from data
         del data[0:3]
         h = ''.join(h)
         if h == self.GO_FEHLER_HEADER:
@@ -139,7 +143,7 @@ class CGMParser:
         for line in data:
             trimmed_line = ''
             if re.match(delimiter, line):
-                logging.info('patient delimiter encountered')
+                logging.debug('patient delimiter encountered')
                 entries.append(current_entry)
                 current_entry = []
                 continue
@@ -163,51 +167,32 @@ class CGMParser:
                     r'(^\d*)\s+([\w -]+), ([\w -]+)\s+(\d{2}.\d{2}.\d{4})',
                     e[0]
                 )
-                if match_0:
-                    logging.debug('successful match of patient information')
-
-                    pat_birth_date = datetime.strptime(match_0[4], '%d.%m.%Y').date()
-
-                    entry_buffer['pat_id'] = match_0[1]
-                    entry_buffer['last_name'] = match_0[2]
-                    entry_buffer['first_name'] = match_0[3]
-                    entry_buffer['birth_date'] = pat_birth_date
-                else:
-                    logging.error('no match of patient information for entry:\n{}'.format(e))
+                if not match_0:
+                    raise FailedGrepMatch('no match of patient information for entry:\n{}'.format(e))
 
                 # parse second line (insurance info)
                 match_1 = re.search(
                     r'([\w]+)\s+(\d)(\d{4})\s+([MFR])\s+(\d*)\s+(\d{2})',
                     e[1]
                 )
-                if match_1:
-                    logging.debug('successful match of insurance information')
-                    entry_buffer['billing_type'] = match_1[1]
-                    entry_buffer['q'] = match_1[2]
-                    entry_buffer['qyear'] = match_1[3]
-                    entry_buffer['ins_status'] = match_1[4]
-                    entry_buffer['vknr'] = match_1[5]
-                    entry_buffer['ktab'] = match_1[6]
-                else:
-                    logging.error('no match of insurance information!')
+                if not match_1:
+                    raise FailedGrepMatch('no match of insurance information!')
 
                 # parse notices
                 notices = self._parse_entry_content(e[2:])
 
                 entries_new.append(
                     CGMBillingNotice(
-                        pat_id=entry_buffer['pat_id'],
-                        first_name=entry_buffer['first_name'],
-                        last_name=entry_buffer['last_name'],
-                        birth_date=entry_buffer['birth_date'],
-
-                        billing_type=entry_buffer['billing_type'],
-                        quarter=entry_buffer['q'],
-                        qyear=entry_buffer['qyear'],
-                        ins_status=entry_buffer['ins_status'],
-                        vknr=entry_buffer['vknr'],
-                        ktab=entry_buffer['ktab'],
-
+                        pat_id= match_0[1],
+                        first_name= match_0[3],
+                        last_name= match_0[2],
+                        birth_date= datetime.strptime(match_0[4], '%d.%m.%Y').date(),
+                        billing_type= match_1[1],
+                        quarter= match_1[2],
+                        qyear= match_1[3],
+                        ins_status= match_1[4],
+                        vknr= match_1[5],
+                        ktab= match_1[6],
                         notices=notices
                     )
                 )
@@ -221,41 +206,28 @@ class CGMParser:
                     r'^Patientennr. (\d+)\s*(.*)',
                     e[0]
                 )
-                if match_0:
-                    logging.debug('successful match on line 1')
-                    entry_buffer['pat_id'] = match_0[1]
-                    entry_buffer['groups'] = match_0[2][1:-1].split(sep=', ')
-                else:
-                    logging.error('no match on first line for entry:\n{}'.format(e))
+                if not match_0:
+                    raise FailedGrepMatch('no match on first line for entry:\n{}'.format(e))
 
                 # parse second line (patient and insurance info)
                 # TODO: it may be that if a patient dies within the current quarter, then the death date will
                 #  show up in this line, since the birth date is designated with a '*'. Try to generate example input
                 match_1 = re.search(r'([\w -]+),([\w -]+);\s\*\s(\d{2}.\d{2}.\d{4}),\s([\w .-]+),\s([A-Z0-9]+)', e[1])
-                if match_1:
-                    logging.debug('successful match on line 2')
-                    pat_birth_date = datetime.strptime(match_1[3], '%d.%m.%Y').date()
-                    entry_buffer['last_name'] = match_1[1]
-                    entry_buffer['first_name'] = match_1[2]
-                    entry_buffer['birth_date'] = pat_birth_date
-
-                    entry_buffer['kasse'] = match_1[4]
-                    entry_buffer['member_id'] = match_1[5]
+                if not match_1:
+                    raise FailedGrepMatch('no match on second line for entry:\n{}'.format(e))
 
                 # parse notes
                 chart_notes = self._parse_entry_content(e[2:])
 
                 entries_new.append(
                     CGMPatientRecord(
-                        pat_id=entry_buffer['pat_id'],
-                        first_name=entry_buffer['first_name'],
-                        last_name=entry_buffer['last_name'],
-                        birth_date=entry_buffer['birth_date'],
-
-                        kasse=entry_buffer['kasse'],
-                        member_id=entry_buffer['member_id'],
-                        groups=entry_buffer['groups'],
-
+                        pat_id=match_0[1],
+                        first_name=match_1[2],
+                        last_name=match_1[1],
+                        birth_date=datetime.strptime(match_1[3], '%d.%m.%Y').date(),
+                        kasse=match_1[4],
+                        member_id=match_1[5],
+                        groups=match_0[2][1:-1].split(sep=', '),
                         chart_notes=chart_notes
                     )
                 )
@@ -316,7 +288,7 @@ class CGMParser:
     def _write_entry_content(content_item, content_list):
         content_item['text'] = ' '.join(content_item['text'])
         content_list.append(content_item)
-        logging.info('appended notice to list of notices')
+        logging.debug('appended notice to list of notices')
         return content_list
 
     def export_csv(self, entries, filepath):
