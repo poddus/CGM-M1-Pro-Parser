@@ -6,12 +6,13 @@ from dataclasses import dataclass, field
 import logging
 from datetime import datetime
 import csv
+from abc import ABC, abstractmethod
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 @dataclass()
-class CGMPatient:
+class CGMPatient(ABC):
     """
     base class which defines a generic single patient-related entry
     """
@@ -20,11 +21,16 @@ class CGMPatient:
     last_name: str
     birth_date: datetime.date
 
-    def fullname(self):
-        return '{} {}'.format(self.first_name, self.last_name)
+    @abstractmethod
+    def get_contents(self):
+        """return dict of instance variables and corresponding values"""
+
+    def get_keys(self):
+        return vars(self).keys()
+
 
 @dataclass()
-class CGMBillingNotice(CGMPatient):
+class CGMPatientBilling(CGMPatient):
     """
     represents single entry in GO-Fehler
 
@@ -54,15 +60,55 @@ class CGMBillingNotice(CGMPatient):
     ktab: str
     notices: list = field(default_factory=[])
 
+    def get_contents(self):
+        inst_vars = vars(self)
+
+        notices = []
+        for notice in inst_vars['notices']:
+            pass
+            current_notice = [
+                notice['date'],
+                notice['type'],
+                notice['text']
+            ]
+            notices.append('\t'.join(i for i in current_notice))
+        inst_vars['notices'] = '\n'.join(i for i in notices)
+
+        return inst_vars
+
 
 @dataclass()
-class CGMPatientRecord(CGMPatient):
+class CGMPatientStats(CGMPatient):
     """represents single entry in Textgruppenstatistik"""
 
     kasse: str
     member_id: str
     groups: list = field(default_factory=[])
     chart_notes: list = field(default_factory=[])
+
+    def get_contents(self):
+        inst_vars = vars(self)
+        if len(inst_vars['groups']) == 0:
+            inst_vars['groups'] = ''
+        elif len(inst_vars['groups']) == 1:
+            inst_vars['groups'] = inst_vars['groups'][0]
+        elif len(inst_vars['groups']) > 1:
+            inst_vars['groups'] = ', '.join(inst_vars['groups'])
+
+        notes = []
+        for note in inst_vars['chart_notes']:
+            current_note = [
+                note['date'],
+                note['erfasser'],
+                note['schein_typ'],
+                note['behandler'],
+                note['fachgebiet'],
+                note['zeilentyp'],
+                note['text']
+            ]
+            notes.append('\t'.join(i for i in current_note))
+        inst_vars['chart_notes'] = '\n'.join(i for i in notes)
+        return inst_vars
 
 
 class FailedGrepMatch(ValueError):
@@ -182,11 +228,11 @@ class CGMParser:
                 notices = self._parse_entry_content(e[2:])
 
                 entries_new.append(
-                    CGMBillingNotice(
+                    CGMPatientBilling(
                         pat_id= match_0[1],
                         first_name= match_0[3],
                         last_name= match_0[2],
-                        birth_date= datetime.strptime(match_0[4], '%d.%m.%Y').date(),
+                        birth_date= datetime.strptime(match_0[4], '%d.%m.%Y').date().strftime('%Y-%m-%d'),
                         billing_type= match_1[1],
                         quarter= match_1[2],
                         qyear= match_1[3],
@@ -220,11 +266,11 @@ class CGMParser:
                 chart_notes = self._parse_entry_content(e[2:])
 
                 entries_new.append(
-                    CGMPatientRecord(
+                    CGMPatientStats(
                         pat_id=match_0[1],
                         first_name=match_1[2],
                         last_name=match_1[1],
-                        birth_date=datetime.strptime(match_1[3], '%d.%m.%Y').date(),
+                        birth_date=datetime.strptime(match_1[3], '%d.%m.%Y').date().strftime('%Y-%m-%d'),
                         kasse=match_1[4],
                         member_id=match_1[5],
                         groups=match_0[2][1:-1].split(sep=', '),
@@ -239,7 +285,7 @@ class CGMParser:
         new_line = True
         if self.input_type == self.T_GOF:
             for line in content:
-                match_info = re.search(r'^(\d{2}.\d{2}.\d{4})\s(.*)', line)
+                match_info = re.search(r'^(\d{2}.\d{2}.\d{4})\s(.*)', line) # TODO: 'Erfasser' in parentheses not matched
                 if match_info:
                     logging.debug('successful match of entry content meta information')
                     if not new_line:
@@ -247,8 +293,7 @@ class CGMParser:
 
                     current_content = {'text': []}
 
-                    date_stamp = datetime.strptime(match_info[1], '%d.%m.%Y').date()
-                    current_content['date'] = date_stamp
+                    current_content['date'] = datetime.strptime(match_info[1], '%d.%m.%Y').date().strftime('%Y-%m-%d')
                     current_content['type'] = match_info[2]
                 # remove leading whitespace
                 trimmed_line = re.sub(r'^\s*', '', line)
@@ -271,8 +316,7 @@ class CGMParser:
                         current_content['text'] = []
                         new_line = True
                     if match_date:
-                        date_stamp = datetime.strptime(match_date[1], '%d.%m.%y').date()
-                        current_content['date'] = date_stamp
+                        current_content['date'] = datetime.strptime(match_date[1], '%d.%m.%y').date().strftime('%Y-%m-%d')
                     if match_other:
                         current_content[k] = match_other[1]
                 new_line = False
@@ -292,57 +336,12 @@ class CGMParser:
         return content_list
 
     def export_csv(self, entries, filepath):
-        # TODO: implement export of content
-        if self.input_type == self.T_GOF:
-            with open(filepath, mode='w') as f:
-                fieldnames = [
-                    'Patienten-ID',
-                    'Nachname',
-                    'Vorname',
-                    'Geburtsdatum',
-                    'Scheinart',
-                    'Quartal',
-                    'Versicherungsstatus',
-                    'VKNR',
-                    'KTAB'
-                ]
-                csv_writer = csv.DictWriter(f, delimiter=';', fieldnames=fieldnames)
-                csv_writer.writeheader()
-                for e in entries:
-                    row_buffer = {
-                        'Patienten-ID': e.pat_id,
-                        'Nachname': e.last_name,
-                        'Vorname': e.first_name,
-                        'Geburtsdatum': e.birth_date,
-                        'Scheinart': e.billing_type,
-                        'Quartal': e.quarter + e.qyear,
-                        'Versicherungsstatus': e.ins_status,
-                        'VKNR': e.vknr,
-                        'KTAB': e.ktab
-                    }
-                    csv_writer.writerow(row_buffer)
-        if self.input_type == self.T_TGS:
-            with open(filepath, mode='w') as f:
-                fieldnames = [
-                    'Patienten-ID',
-                    'Nachname',
-                    'Vorname',
-                    'Geburtsdatum',
-                    'Kasse',
-                    'Versichertennummer'
-                ]
-                csv_writer = csv.DictWriter(f, delimiter=';', fieldnames=fieldnames)
-                csv_writer.writeheader()
-                for e in entries:
-                    row_buffer = {
-                        'Patienten-ID': e.pat_id,
-                        'Nachname': e.last_name,
-                        'Vorname': e.first_name,
-                        'Geburtsdatum': e.birth_date,
-                        'Kasse': e.kasse,
-                        'Versichertennummer': e.member_id
-                    }
-                    csv_writer.writerow(row_buffer)
+        with open(filepath, mode='w') as f:
+            fieldnames = entries[0].get_keys()
+            csv_writer = csv.DictWriter(f, delimiter=';', fieldnames=fieldnames, quoting=csv.QUOTE_ALL)
+            csv_writer.writeheader()
+            for e in entries:
+                csv_writer.writerow(e.get_contents())
 
     @staticmethod
     def export_ids(entries, filepath):
