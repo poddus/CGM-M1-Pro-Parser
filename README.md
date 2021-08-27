@@ -2,7 +2,7 @@
 CGM M1 Pro has the option to search by certain criteria. The results of these searches can be exported to text files.
 Unfortunately (like most things in the software), this functionality hasn't been updated for about 2 decades.
 The lists don't share a common format, they don't even share the same line width.
-This makes working with lists outside of CGM M1 Pro basically impossible (perhaps this by design).
+This makes working with lists outside of CGM M1 Pro basically impossible (perhaps this is by design).
 This parser fills the gap and enables exporting to a sane format.
 
 ## A Word of Caution

@@ -11,10 +11,11 @@ from abc import ABC, abstractmethod
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+
 @dataclass()
 class CGMPatient(ABC):
     """
-    base class which defines a generic single patient-related entry
+    base class which defines a generic single patient-related record
     """
     pat_id: str
     first_name: str
@@ -30,9 +31,9 @@ class CGMPatient(ABC):
 
 
 @dataclass()
-class CGMPatientBilling(CGMPatient):
+class CGMPatientGOF(CGMPatient):
     """
-    represents single entry in GO-Fehler
+    represent single record in GO-Fehler
 
     quarter is of the format
     [1,2,3,4][yyyy] (for example 12000 for 1. quarter of year 2000)
@@ -69,6 +70,7 @@ class CGMPatientBilling(CGMPatient):
             current_notice = [
                 notice['date'],
                 notice['type'],
+                notice['erfasser'],
                 notice['text']
             ]
             notices.append('\t'.join(i for i in current_notice))
@@ -78,8 +80,8 @@ class CGMPatientBilling(CGMPatient):
 
 
 @dataclass()
-class CGMPatientStats(CGMPatient):
-    """represents single entry in Textgruppenstatistik"""
+class CGMPatientTGS(CGMPatient):
+    """represent single record in Textgruppenstatistik"""
 
     kasse: str
     member_id: str
@@ -115,6 +117,47 @@ class FailedGrepMatch(ValueError):
     pass
 
 
+class ParsingContext(ABC):
+    """define methods specific to a particular input format"""
+
+    @abstractmethod
+    def separate_records(self):
+        """return list of records (list of list of strings)"""
+
+    @abstractmethod
+    def parse_records(self):
+        """return list of parsed records (list of dicts)"""
+
+    def _parse_content(self):
+        """return parsed record content (list of dicts)"""
+
+
+class ParsingContextGOF(ParsingContext):
+    """parsing context for GOF format"""
+
+    def separate_records(self):
+        raise NotImplementedError
+
+    def parse_records(self):
+        raise NotImplementedError
+
+    def _parse_content(self):
+        raise NotImplementedError
+
+
+class ParsingContextTGS(ParsingContext):
+    """parsing context for TGS format"""
+
+    def separate_records(self):
+        raise NotImplementedError
+
+    def parse_records(self):
+        raise NotImplementedError
+
+    def _parse_content(self):
+        raise NotImplementedError
+
+
 class CGMParser:
     """
     Parser for lists exported from CGM M1 Pro
@@ -140,7 +183,7 @@ class CGMParser:
     T_TGS = 'TGS'
     # regex searches
     PAT_DEL = r'={85} {6}\n'
-    TGS_ENTRY_DEL = r'-{96}'
+    TGS_RECORD_DEL = r'-{96}'
     TGS_INDENT_LEVELS = {
         'erfasser': 9,
         'schein_typ': 13,
@@ -149,9 +192,9 @@ class CGMParser:
         'zeilentyp': 23
     }
 
-    def __init__(self):
-        self.input_type = ''
-        self.entries = []
+    # def __init__(self):
+    #     self.input_type = ''
+    #     self.entries = []
 
     def interpret_header(self, data):
         h = data[0:3]
@@ -170,7 +213,7 @@ class CGMParser:
         return data
 
     def separate_entries(self, data):
-        # remove first entry delimiter
+        # remove first record delimiter
         del data[0]
 
         delimiter = ''
@@ -180,26 +223,27 @@ class CGMParser:
 
         elif self.input_type == self.T_TGS:
             logging.info('separating data using TGS format')
-            delimiter = self.TGS_ENTRY_DEL
+            delimiter = self.TGS_RECORD_DEL
         else:
             logging.error('no delimiter recognized')
 
         entries = []
-        current_entry = []
+        current_record = []
         for line in data:
             trimmed_line = ''
             if re.match(delimiter, line):
                 logging.debug('patient delimiter encountered')
-                entries.append(current_entry)
-                current_entry = []
+                entries.append(current_record)
+                current_record = []
                 continue
             # trim trailing whitespace. leading whitespace (indent) is needed for parsing and is removed later
             trimmed_line = re.sub(r' +$', '', line)
-            current_entry.append(trimmed_line)
-        # add last entry to list
-        entries.append(current_entry)
+            current_record.append(trimmed_line)
+        # add last record to list
+        entries.append(current_record)
         return entries
 
+    # TODO: refactor into dataclass
     def parse_entries(self, entries):
         entries_new = []
         if self.input_type == self.T_GOF:
@@ -207,14 +251,14 @@ class CGMParser:
 
             for e in entries:
                 # parse first line (patient info)
-                entry_buffer = {}
+                record_buffer = {}
                 match_0 = re.search(
                     # TODO: can names be empty?
                     r'(^\d*)\s+([\w -]+), ([\w -]+)\s+(\d{2}.\d{2}.\d{4})',
                     e[0]
                 )
                 if not match_0:
-                    raise FailedGrepMatch('no match of patient information for entry:\n{}'.format(e))
+                    raise FailedGrepMatch('no match of patient information for record:\n{}'.format(e))
 
                 # parse second line (insurance info)
                 match_1 = re.search(
@@ -225,10 +269,10 @@ class CGMParser:
                     raise FailedGrepMatch('no match of insurance information!')
 
                 # parse notices
-                notices = self._parse_entry_content(e[2:])
+                notices = self._parse_record_content(e[2:])
 
                 entries_new.append(
-                    CGMPatientBilling(
+                    CGMPatientGOF(
                         pat_id= match_0[1],
                         first_name= match_0[3],
                         last_name= match_0[2],
@@ -245,7 +289,7 @@ class CGMParser:
         elif self.input_type == self.T_TGS:
             logging.info('parsing entries using TGS format')
             for e in entries:
-                entry_buffer = {}
+                record_buffer = {}
 
                 # parse first line (patient ID)
                 match_0 = re.search(
@@ -253,20 +297,20 @@ class CGMParser:
                     e[0]
                 )
                 if not match_0:
-                    raise FailedGrepMatch('no match on first line for entry:\n{}'.format(e))
+                    raise FailedGrepMatch('no match on first line for record:\n{}'.format(e))
 
                 # parse second line (patient and insurance info)
                 # TODO: it may be that if a patient dies within the current quarter, then the death date will
                 #  show up in this line, since the birth date is designated with a '*'. Try to generate example input
                 match_1 = re.search(r'([\w -]+),([\w -]+);\s\*\s(\d{2}.\d{2}.\d{4}),\s([\w .-]+),\s([A-Z0-9]+)', e[1])
                 if not match_1:
-                    raise FailedGrepMatch('no match on second line for entry:\n{}'.format(e))
+                    raise FailedGrepMatch('no match on second line for record:\n{}'.format(e))
 
                 # parse notes
-                chart_notes = self._parse_entry_content(e[2:])
+                chart_notes = self._parse_record_content(e[2:])
 
                 entries_new.append(
-                    CGMPatientStats(
+                    CGMPatientTGS(
                         pat_id=match_0[1],
                         first_name=match_1[2],
                         last_name=match_1[1],
@@ -280,24 +324,24 @@ class CGMParser:
         return entries_new
 
     # TODO: refactor into dataclass
-    def _parse_entry_content(self, content):
+    def _parse_record_content(self, content):
         content_list = []
         new_line = True
         if self.input_type == self.T_GOF:
             for line in content:
-                match_info = re.search(r'^(\d{2}.\d{2}.\d{4})\s(.*)', line) # TODO: 'Erfasser' in parentheses not matched
+                match_info = re.search(r'^(\d{2}.\d{2}.\d{4})\s(\w+)(\s\(\w{3}\))*', line)
                 if match_info:
-                    logging.debug('successful match of entry content meta information')
                     if not new_line:
-                        content_list = self._write_entry_content(current_content, content_list)
-
+                        content_list = self._write_record_content(current_content, content_list)
                     current_content = {'text': []}
-
                     current_content['date'] = datetime.strptime(match_info[1], '%d.%m.%Y').date().strftime('%Y-%m-%d')
                     current_content['type'] = match_info[2]
-                # remove leading whitespace
-                trimmed_line = re.sub(r'^\s*', '', line)
-                current_content['text'].append(trimmed_line)
+                    if match_info[3]:
+                        current_content['erfasser'] = match_info[3][2:-1]
+                else:  # this line is not info line -> parse content
+                    # remove leading whitespace
+                    trimmed_line = re.sub(r'^\s*', '', line)
+                    current_content['text'].append(trimmed_line)
                 new_line = False
 
         elif self.input_type == self.T_TGS:
@@ -311,7 +355,7 @@ class CGMParser:
                     if not new_line and (match_date or match_other):
                         # different from GOF, here we want to retain attributes, but we clear text for next loop
                         # this is done by creating a copy
-                        content_list = self._write_entry_content(current_content, content_list)
+                        content_list = self._write_record_content(current_content, content_list)
                         current_content = current_content.copy()
                         current_content['text'] = []
                         new_line = True
@@ -325,11 +369,11 @@ class CGMParser:
                 if match_text:
                     current_content['text'].append(match_text[1])
 
-        content_list = self._write_entry_content(current_content, content_list)
+        content_list = self._write_record_content(current_content, content_list)
         return content_list
 
     @staticmethod
-    def _write_entry_content(content_item, content_list):
+    def _write_record_content(content_item, content_list):
         content_item['text'] = ' '.join(content_item['text'])
         content_list.append(content_item)
         logging.debug('appended notice to list of notices')
@@ -337,7 +381,7 @@ class CGMParser:
 
     def export_csv(self, entries, filepath):
         with open(filepath, mode='w') as f:
-            fieldnames = entries[0].get_keys()
+            fieldnames = entries[0].get_keys()  # TODO: hacky way to get fieldnames
             csv_writer = csv.DictWriter(f, delimiter=';', fieldnames=fieldnames, quoting=csv.QUOTE_ALL)
             csv_writer.writeheader()
             for e in entries:
@@ -349,11 +393,26 @@ class CGMParser:
             for e in entries:
                 f.writelines(e.pat_id + '\n')
 
+    # --------------------------------------------------------
+    # refactored code below
+
+    def __init__(self, raw_input):
+        self.raw_input = raw_input
+        self.context = self._determine_context(raw_input)
+        self.separated_records = self.context.separate_records(raw_input)
+        self.parsed_records = self.context.parse_records(self.separated_records)
+
+    def _determine_context(self, input):
+        """assign relevant context to self.context based on raw input"""
+        raise NotImplementedError
+
 
 def main(args):
-    p = CGMParser()
     with open(args.input_path, 'r', encoding='cp1252') as f:
         glob_data = f.readlines()
+
+    p = CGMParser(glob_data)
+
 
     glob_data = p.interpret_header(glob_data)
     glob_entries = p.separate_entries(glob_data)
