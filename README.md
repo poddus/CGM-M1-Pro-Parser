@@ -12,7 +12,7 @@ If at all possible, please avoid using CGM M1 Pro. It is an abysmal product.
 For now, the best way to use the parser is via command line
 
 ```bash
-./Parser.py input.txt output.csv
+./CGMParser.py input.txt output.csv
 ```
 
 this creates a list of patient IDs found in the input file. Using the optional `-a` flag, it is possible to extract all 

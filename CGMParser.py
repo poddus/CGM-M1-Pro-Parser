@@ -120,6 +120,7 @@ class FailedGrepMatch(ValueError):
 class ParsingContext(ABC):
     """define methods specific to a particular input format"""
 
+    HEADER: str
     RECORD_DELIMITER: str
 
     def __init__(self, raw_input):
@@ -162,6 +163,11 @@ class ParsingContext(ABC):
 class ParsingContextGOF(ParsingContext):
     """parsing context for GOF format"""
 
+    HEADER = (
+        '==========================================================================================\n'
+        'Eintrag                                                                                 \n'
+        '==========================================================================================\n'
+    )
     RECORD_DELIMITER = r'={85} {6}\n'
 
     def parse_records(self, records):
@@ -234,6 +240,11 @@ class ParsingContextGOF(ParsingContext):
 class ParsingContextTGS(ParsingContext):
     """parsing context for TGS format"""
 
+    HEADER = (
+        '================================================================================================\n'
+        'Textgruppenstatistik\n'
+        '================================================================================================\n'
+        )
     RECORD_DELIMITER = r'-{96}'
 
     TGS_INDENT_LEVELS = {
@@ -324,17 +335,6 @@ class CGMParser:
     TGS (Textgruppenstatistik)
     """
 
-    GOF_HEADER = (
-        '==========================================================================================\n'
-        'Eintrag                                                                                 \n'
-        '==========================================================================================\n'
-        )
-    TGS_HEADER = (
-        '================================================================================================\n'
-        'Textgruppenstatistik\n'
-        '================================================================================================\n'
-        )
-
     def __init__(self, raw_input):
         self.context = self._determine_context(raw_input)
         self.records = self.context.separate_records()
@@ -344,10 +344,10 @@ class CGMParser:
         """assign relevant context to self.context based on raw input"""
         h = ''.join(raw_input[:3])
 
-        if h == self.GOF_HEADER:
+        if h == ParsingContextGOF.HEADER:
             logging.info('context set to GOF')
             return ParsingContextGOF(raw_input)
-        elif h == self.TGS_HEADER:
+        elif h == ParsingContextTGS.HEADER:
             logging.info('context set to TGS')
             return ParsingContextTGS(raw_input)
 
