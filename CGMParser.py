@@ -22,11 +22,16 @@ class CGMPatient(ABC):
     last_name: str
     birth_date: datetime.date
 
+    # @abstractmethod
+    # def get_instance_variables(self):
+    #     """return dict of instance variables and corresponding values"""
+
     @abstractmethod
-    def get_instance_variables(self):
+    def repr_as_dict(self) -> dict:
         """return dict of instance variables and corresponding values"""
 
     def get_keys(self):
+        # TODO: this should return type list
         return vars(self).keys()
 
 
@@ -61,8 +66,7 @@ class CGMPatientGOF(CGMPatient):
     ktab: str
     content: list = field(default_factory=[])
 
-    # TODO: This does not export to csv correctly
-    def get_instance_variables(self):
+    def repr_as_dict(self) -> dict:
         instance_variables = vars(self)
 
         notices = []
@@ -74,7 +78,7 @@ class CGMPatientGOF(CGMPatient):
                 notice['text']
             ]
             notices.append('\t'.join(i for i in current_notice))
-        instance_variables['notices'] = '\n'.join(i for i in notices)
+        instance_variables['content'] = '\n'.join(i for i in notices)
 
         return instance_variables
 
@@ -88,7 +92,7 @@ class CGMPatientTGS(CGMPatient):
     groups: list = field(default_factory=[])
     content: list = field(default_factory=[])
 
-    def get_instance_variables(self):
+    def repr_as_dict(self) -> dict:
         inst_vars = vars(self)
         if len(inst_vars['groups']) == 0:
             inst_vars['groups'] = ''
@@ -219,17 +223,20 @@ class ParsingContextGOF(ParsingContext):
             if match_info:
                 if not new_line:
                     content_list = self._write_record_content(current_content, content_list)
-                current_content = {'text': [],
-                                   'date': datetime.strptime(match_info[1], '%d.%m.%Y').date().strftime('%Y-%m-%d'),
-                                   'type': match_info[2]}
-                if match_info[3]:
-                    current_content['erfasser'] = match_info[3][2:-1]
-                elif not match_info[3]:
+
+                current_content = {
+                    'text': [],
+                    'date': datetime.strptime(match_info[1], '%d.%m.%Y').date().strftime('%Y-%m-%d'),
+                    'type': match_info[2]
+                }
+
+                if not match_info[3]:
                     # sometimes this information is not given
                     current_content['erfasser'] = ''
-            else:  # this line is not info line -> parse content
-                # remove leading whitespace
-                trimmed_line = re.sub(r'^\s*', '', line)
+                else:
+                    current_content['erfasser'] = match_info[3][2:-1]
+            else:
+                trimmed_line = re.sub(r'^\s*|\n', '', line)
                 current_content['text'].append(trimmed_line)
             new_line = False
 
@@ -357,7 +364,7 @@ class CGMParser:
             csv_writer = csv.DictWriter(f, delimiter=';', fieldnames=fieldnames, quoting=csv.QUOTE_ALL)
             csv_writer.writeheader()
             for rec in self.parsed_records:
-                csv_writer.writerow(rec.get_instance_variables())
+                csv_writer.writerow(rec.repr_as_dict())
 
     def export_ids(self, filepath):
         with open(filepath, mode='w') as f:
