@@ -31,7 +31,6 @@ class CGMPatient(ABC):
         """return dict of instance variables and corresponding values"""
 
     def get_keys(self):
-        # TODO: this should return type list
         return vars(self).keys()
 
 
@@ -132,7 +131,7 @@ class ParsingContext(ABC):
 
     @abstractmethod
     def parse_records(self, records):
-        """return list of parsed records (list of dicts)"""
+        """return list of parsed records (list of CGMPatient)"""
 
     @abstractmethod
     def _parse_content(self, content):
