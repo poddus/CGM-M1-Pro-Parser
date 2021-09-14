@@ -280,7 +280,7 @@ class ParsingContextTGS(ParsingContext):
             # parse second line (patient and insurance info)
             # TODO: it may be that if a patient dies within the current quarter, then the death date will
             #  show up in this line, since the birth date is designated with a '*'. Try to generate example input
-            match_1 = re.search(r'([\w -]+),([\w -]+);\s\*\s(\d{2}.\d{2}.\d{4}),\s([\w .-]+),\s([A-Z0-9]+)', rec[1])
+            match_1 = re.search(r'([\w .-]+),([\w .-]+);\s\*\s(\d{2}.\d{2}.\d{4}),\s([\w ()&+/.-]+),\s*([A-Z0-9]*)', rec[1])
             if not match_1:
                 raise FailedGrepMatch('no match on second line for record:\n{}'.format(rec))
 
@@ -309,7 +309,7 @@ class ParsingContextTGS(ParsingContext):
             for k, v in self.TGS_INDENT_LEVELS.items():
                 # TODO: combine searches with regex OR operator (|)?
                 match_date = re.search(r'^(\d{2}.\d{2}.\d{2})', line)
-                match_other = re.search(r'^.{{{}}}(\w+)'.format(v), line)
+                match_other = re.search(r'^.{{{}}}([\w-]+)'.format(v), line)
                 if not new_line and (match_date or match_other):
                     # different from GOF, here we want to retain attributes, but we clear text for next loop
                     # this is done by creating a copy
