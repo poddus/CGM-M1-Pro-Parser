@@ -7,6 +7,10 @@ import logging
 from datetime import datetime
 import csv
 from abc import ABC, abstractmethod
+# from gooey import Gooey
+import numpy as np
+import pandas as pd
+
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -29,6 +33,10 @@ class CGMPatient(ABC):
     @abstractmethod
     def repr_as_dict(self) -> dict:
         """return dict of instance variables and corresponding values"""
+
+    @abstractmethod
+    def repr_as_list(self) -> list:
+        """return list of the values of instance variables"""
 
     def get_keys(self):
         return vars(self).keys()
@@ -67,9 +75,9 @@ class CGMPatientGOF(CGMPatient):
 
     def repr_as_dict(self) -> dict:
         instance_variables = vars(self)
-
+        mod_instance_variables = instance_variables.copy()
         notices = []
-        for notice in instance_variables['content']:
+        for notice in mod_instance_variables['content']:
             current_notice = [
                 notice['date'],
                 notice['type'],
@@ -77,9 +85,17 @@ class CGMPatientGOF(CGMPatient):
                 notice['text']
             ]
             notices.append('\t'.join(i for i in current_notice))
-        instance_variables['content'] = '\n'.join(i for i in notices)
+        mod_instance_variables['content'] = '\n'.join(i for i in notices)
 
-        return instance_variables
+        return mod_instance_variables
+
+    def repr_as_list(self) -> list:
+        d = self.repr_as_dict()
+
+        l = []
+        for k, v in d.items():
+            l.append(v)
+        return l
 
 
 @dataclass()
@@ -114,6 +130,13 @@ class CGMPatientTGS(CGMPatient):
             notes.append('\t'.join(i for i in current_note))
         inst_vars['content'] = '\n'.join(i for i in notes)
         return inst_vars
+
+    def repr_as_list(self) -> list:
+        d = self.repr_as_dict()
+
+        l = []
+        for k, v in d.items():
+            l.append(v)
 
 
 class FailedGrepMatch(ValueError):
@@ -180,7 +203,7 @@ class ParsingContextGOF(ParsingContext):
             # parse first line (patient info)
             match_0 = re.search(
                 # TODO: can names be empty?
-                r'(^\d*)\s+([\w -]+), ([\w -]+)\s+(\d{2}.\d{2}.\d{4})',
+                r'(^\d*)\s+([\w .-]+), ([\w .-]+)\s+(\d{2}.\d{2}.\d{4})',
                 rec[0]
             )
             if not match_0:
@@ -358,30 +381,55 @@ class CGMParser:
             return ParsingContextTGS(raw_input)
 
     def export_csv(self, filepath):
-        with open(filepath, mode='w') as f:
-            fieldnames = self.parsed_records[0].get_keys()  # TODO: hacky way to get fieldnames
-            csv_writer = csv.DictWriter(f, delimiter=';', fieldnames=fieldnames, quoting=csv.QUOTE_ALL)
+        with open(filepath, mode='w', encoding='UTF-8') as f:
+            csv_writer = csv.DictWriter(f, delimiter=';', quoting=csv.QUOTE_ALL)
             csv_writer.writeheader()
             for rec in self.parsed_records:
                 csv_writer.writerow(rec.repr_as_dict())
+
+    def repr_as_np_array(self):
+        a = []
+        for rec in self.parsed_records:
+            a.append(rec.repr_as_list())
+        return np.array(a)
+
+    def repr_as_pd_dataframe(self):
+        a = self.repr_as_np_array()
+        return pd.DataFrame(data=a)
 
     def export_ids(self, filepath):
         with open(filepath, mode='w') as f:
             for rec in self.parsed_records:
                 f.writelines(rec.pat_id + '\n')
 
+def difference_of_sets(s1, s2):
+    return pd.concat([s1, s2]).drop_duplicates(keep=False)
 
 def main(args):
     with open(args.input_path, 'r', encoding='cp1252') as f:
-        data = f.readlines()
+        data1 = f.readlines()
 
-    p = CGMParser(data)
-    p.export_csv('out.csv')
+    p1 = CGMParser(data1)
+
+    if args.difference:
+
+        with open(args.difference, 'r', encoding='cp1252') as f:
+            data2 = f.readlines()
+
+        p2 = CGMParser(data2)
+        difference = difference_of_sets(
+            p1.repr_as_pd_dataframe(),
+            p2.repr_as_pd_dataframe()
+        )
+        difference.to_csv(args.output_path, header=False, index=False, sep=';')
+    else:
+        p1.export_csv(args.output_path)
 
 
 if __name__ == "__main__":
     from argparse import ArgumentParser
 
+    # @Gooey
     def parse_arguments():
         parser = ArgumentParser(
             description='Accepts a CGM M1 Pro list file and returns a csv file of either only patient IDs (default) or '
@@ -389,16 +437,19 @@ if __name__ == "__main__":
         )
         parser.add_argument(
             'input_path',
-            help='path to the file to be parsed'
+            help='path to the file to be parsed. if using set operations, this is becomes the reference set.'
         )
         parser.add_argument(
-            'output_path',
+            '-d',
+            '--difference',
+            help='return the difference between the reference and this set'
+        )
+        parser.add_argument(
+            '-o',
+            '--output_path',
+            nargs='?',
+            default='out.csv',
             help='relative path to the output (CSV) file'
-        )
-        parser.add_argument(
-            '-a',
-            action='store_true',
-            help='export all available information to output'
         )
         return parser.parse_args()
 

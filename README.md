@@ -8,11 +8,14 @@ This parser fills the gap and enables exporting to a sane format.
 ## A Word of Caution
 If at all possible, please avoid using CGM M1 Pro. It is an abysmal product.
 
+## Dependencies
+The script requires `numpy` and `pandas` for the set operation option.
+
 ## Usage
 For now, the best way to use the parser is via command line
 
 ```bash
-./CGMParser.py input.txt output.csv
+./CGMParser.py input.txt -o output.csv
 ```
 
 this creates a list of patient IDs found in the input file. Using the optional `-a` flag, it is possible to extract all 
