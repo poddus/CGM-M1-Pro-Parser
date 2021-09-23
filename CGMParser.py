@@ -137,6 +137,7 @@ class CGMPatientTGS(CGMPatient):
         l = []
         for k, v in d.items():
             l.append(v)
+        return l
 
 
 class FailedGrepMatch(ValueError):
@@ -159,6 +160,12 @@ class ParsingContext(ABC):
     @abstractmethod
     def _parse_content(self, content):
         """return parsed record content (list of dicts)"""
+
+    @abstractmethod
+    def get_headers(self) -> list:
+        """return list of column headers for export"""
+    #     TODO: the headers are needed in multiple parts of the script and are used explicitly so far.
+    #      a programmatic approach would be better
 
     def separate_records(self):
         """return list of records (list of list of strings)"""
@@ -265,6 +272,21 @@ class ParsingContextGOF(ParsingContext):
         content_list = self._write_record_content(current_content, content_list)
         return content_list
 
+    def get_headers(self) -> list:
+        return [
+            'pat_id',
+            'first_name',
+            'last_name',
+            'birth_date',
+            'billing_type',
+            'quarter',
+            'qyear',
+            'ins_status',
+            'vknr',
+            'ktab',
+            'content'
+        ]
+
 
 class ParsingContextTGS(ParsingContext):
     """parsing context for TGS format"""
@@ -354,6 +376,18 @@ class ParsingContextTGS(ParsingContext):
         content_list = self._write_record_content(current_content, content_list)
         return content_list
 
+    def get_headers(self) -> list:
+        return [
+            'pat_id',
+            'first_name',
+            'last_name',
+            'birth_date',
+            'kasse',
+            'member_id',
+            'groups',
+            'content'
+        ]
+
 
 class CGMParser:
     """
@@ -395,15 +429,18 @@ class CGMParser:
 
     def repr_as_pd_dataframe(self):
         a = self.repr_as_np_array()
-        return pd.DataFrame(data=a)
+        return pd.DataFrame(data=a, columns=self.context.get_headers())
 
     def export_ids(self, filepath):
         with open(filepath, mode='w') as f:
             for rec in self.parsed_records:
                 f.writelines(rec.pat_id + '\n')
 
-def difference_of_sets(s1, s2):
-    return pd.concat([s1, s2]).drop_duplicates(keep=False)
+def difference_of_sets(df1, df2):
+    # by concatenating df2 twice, we insure that all entries from df2 exist at least twice and will all be removed by
+    # `drop_duplicates(keep=False)`
+    pat_ids_to_keep = pd.concat([df1.pat_id, df2.pat_id, df2.pat_id]).drop_duplicates(keep=False)
+    return df1[df1['pat_id'].isin(pat_ids_to_keep)]
 
 def main(args):
     with open(args.input_path, 'r', encoding='cp1252') as f:
@@ -421,7 +458,7 @@ def main(args):
             p1.repr_as_pd_dataframe(),
             p2.repr_as_pd_dataframe()
         )
-        difference.to_csv(args.output_path, header=False, index=False, sep=';')
+        difference.to_csv(args.output_path, sep=';')
     else:
         p1.export_csv(args.output_path)
 
