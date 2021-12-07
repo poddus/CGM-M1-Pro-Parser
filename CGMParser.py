@@ -218,7 +218,7 @@ class ParsingContextGOF(ParsingContext):
 
             # parse second line (insurance info)
             match_1 = re.search(
-                r'([\w]+)\s+(\d)(\d{4})\s+([MFR])\s+(\d*)\s+(\d{2})',
+                r'([\w]+)\s+(\d)(\d{4})\s+([MFR]*)\s+(\d*)\s+(\d{2})',
                 rec[1]
             )
             if not match_1:
@@ -437,10 +437,17 @@ class CGMParser:
                 f.writelines(rec.pat_id + '\n')
 
 def difference_of_sets(df1, df2):
+<<<<<<< HEAD
     # by concatenating df2 twice, we insure that all entries from df2 exist at least twice and will all be removed by
     # `drop_duplicates(keep=False)`
     pat_ids_to_keep = pd.concat([df1.pat_id, df2.pat_id, df2.pat_id]).drop_duplicates(keep=False)
     return df1[df1['pat_id'].isin(pat_ids_to_keep)]
+=======
+    intersection = pd.merge(df1, df2, how='inner', on=0)
+    df3 = df1.set_index(0).drop(intersection[0])
+    df3.reset_index(level=0, inplace=True)
+    return df3
+>>>>>>> fix difference operation
 
 def main(args):
     with open(args.input_path, 'r', encoding='cp1252') as f:
