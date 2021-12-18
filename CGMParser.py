@@ -11,7 +11,6 @@ from abc import ABC, abstractmethod
 import numpy as np
 import pandas as pd
 
-
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -92,10 +91,10 @@ class CGMPatientGOF(CGMPatient):
     def repr_as_list(self) -> list:
         d = self.repr_as_dict()
 
-        l = []
+        temp_list = []
         for k, v in d.items():
-            l.append(v)
-        return l
+            temp_list.append(v)
+        return temp_list
 
 
 @dataclass()
@@ -134,10 +133,10 @@ class CGMPatientTGS(CGMPatient):
     def repr_as_list(self) -> list:
         d = self.repr_as_dict()
 
-        l = []
+        temp_list = []
         for k, v in d.items():
-            l.append(v)
-        return l
+            temp_list.append(v)
+        return temp_list
 
 
 class FailedGrepMatch(ValueError):
@@ -164,6 +163,7 @@ class ParsingContext(ABC):
     @abstractmethod
     def get_headers(self) -> list:
         """return list of column headers for export"""
+
     #     TODO: the headers are needed in multiple parts of the script and are used explicitly so far.
     #      a programmatic approach would be better
 
@@ -295,7 +295,7 @@ class ParsingContextTGS(ParsingContext):
         '================================================================================================\n'
         'Textgruppenstatistik\n'
         '================================================================================================\n'
-        )
+    )
     RECORD_DELIMITER = r'-{96}'
 
     TGS_INDENT_LEVELS = {
@@ -325,7 +325,8 @@ class ParsingContextTGS(ParsingContext):
             # parse second line (patient and insurance info)
             # TODO: it may be that if a patient dies within the current quarter, then the death date will
             #  show up in this line, since the birth date is designated with a '*'. Try to generate example input
-            match_1 = re.search(r'([\w .-]+),([\w .-]+);\s\*\s(\d{2}.\d{2}.\d{4}),\s([\w ()&+/.-]+),\s*([A-Z0-9]*)', rec[1])
+            match_1 = re.search(r'([\w .-]+),([\w .-]+);\s\*\s(\d{2}.\d{2}.\d{4}),\s([\w ()&+/.-]+),\s*([A-Z0-9]*)',
+                                rec[1])
             if not match_1:
                 raise FailedGrepMatch('no match on second line for record:\n{}'.format(rec))
 
@@ -403,7 +404,8 @@ class CGMParser:
         self.records = self.context.separate_records()
         self.parsed_records = self.context.parse_records(self.records)
 
-    def _determine_context(self, raw_input):
+    @staticmethod
+    def _determine_context(raw_input):
         """assign relevant context to self.context based on raw input"""
         h = ''.join(raw_input[:3])
 
@@ -436,18 +438,13 @@ class CGMParser:
             for rec in self.parsed_records:
                 f.writelines(rec.pat_id + '\n')
 
+
 def difference_of_sets(df1, df2):
-<<<<<<< HEAD
-    # by concatenating df2 twice, we insure that all entries from df2 exist at least twice and will all be removed by
-    # `drop_duplicates(keep=False)`
-    pat_ids_to_keep = pd.concat([df1.pat_id, df2.pat_id, df2.pat_id]).drop_duplicates(keep=False)
-    return df1[df1['pat_id'].isin(pat_ids_to_keep)]
-=======
     intersection = pd.merge(df1, df2, how='inner', on=0)
     df3 = df1.set_index(0).drop(intersection[0])
     df3.reset_index(level=0, inplace=True)
     return df3
->>>>>>> fix difference operation
+
 
 def main(args):
     with open(args.input_path, 'r', encoding='cp1252') as f:
@@ -496,6 +493,7 @@ if __name__ == "__main__":
             help='relative path to the output (CSV) file'
         )
         return parser.parse_args()
+
 
     arguments = parse_arguments()
     main(arguments)
